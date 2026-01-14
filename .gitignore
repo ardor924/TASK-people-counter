@@ -231,4 +231,32 @@ $RECYCLE.BIN/
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,windows,python,jupyternotebooks
 
-설명
+설명venv/
+__pycache__/
+
+
+# ======================
+# Project Specific
+# ======================
+
+# Video data
+*.mp4
+*.avi
+
+# Model weights
+*.pt
+*.onnx
+*.engine
+
+# Outputs
+runs/
+outputs/
+results/
+logs/
+
+# Environment
+venv/
+.env
+
+# OS
+.DS_Store
