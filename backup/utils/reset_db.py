@@ -7,7 +7,7 @@ project_root = os.path.dirname(current_dir)               # .../project_root
 sys.path.append(project_root)
 
 # 경로 설정 후 import
-from src.database import DatabaseManager
+from backup.database import DatabaseManager
 
 def reset_project():
     print(f"📍 Project Root Detected: {project_root}")

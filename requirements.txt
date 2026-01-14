@@ -1,14 +1,12 @@
-# AI Core
-ultralytics>=8.1.0       # YOLOv8 (Detection + Tracking 포함)
+# AI Core & Computer Vision
+ultralytics>=8.1.0       # YOLOv8
 opencv-python>=4.8.0     # Image Processing
 numpy>=1.23.0            # Math
+supervision>=0.18.0      # [추가] Tracking & Counting Solution (SOTA)
 
-
-# Attribute Recognition (CLIP)
-transformers>=4.30.0     # CLIP Model Loading 
-pillow>=9.0.0            # Image Handling for CLIP 
-safetensors>=0.4.0       # 보안 로딩용
+# Data Handling
+pandas>=2.0.0            # [추가] CSV Export
 
 # Utilities
 tqdm                     # Progress Bar
-lapx>=0.5.5              # ByteTrack 트래커 사용시 필요한 의존성 (중요!)
+lapx>=0.5.5              # ByteTrack Essential Dependency
