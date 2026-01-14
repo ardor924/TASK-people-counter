@@ -3,6 +3,12 @@ ultralytics>=8.1.0       # YOLOv8 (Detection + Tracking 포함)
 opencv-python>=4.8.0     # Image Processing
 numpy>=1.23.0            # Math
 
+
+# Attribute Recognition (CLIP)
+transformers>=4.30.0     # CLIP Model Loading 
+pillow>=9.0.0            # Image Handling for CLIP 
+safetensors>=0.4.0       # 보안 로딩용
+
 # Utilities
 tqdm                     # Progress Bar
 lapx>=0.5.5              # ByteTrack 트래커 사용시 필요한 의존성 (중요!)

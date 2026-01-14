@@ -1,150 +1,190 @@
 import cv2
+import torch
 import numpy as np
+from PIL import Image
+from transformers import CLIPProcessor, CLIPModel
 
 class AttributeExtractor:
     def __init__(self):
-        # 1. 색상 기준점 (Centroids) 정의 - HSV 공간
-        # (Hue, Saturation, Value)
-        # H: 색상, S: 선명도, V: 밝기
+        # -----------------------------------------------------------
+        # 1. [Color] HSV 기준점
+        # -----------------------------------------------------------
         self.colors = {
-            "Black":  np.array([0, 0, 20]),       # 명도가 아주 낮음
-            "White":  np.array([0, 0, 235]),      # 명도가 아주 높고 채도 낮음
-            "Gray":   np.array([0, 0, 128]),      # 채도 낮고 명도 중간
-            "Red":    np.array([0, 200, 200]),    # H=0 쪽 Red
-            "Red2":   np.array([179, 200, 200]),  # H=179 쪽 Red (Hue는 원형)
-            "Orange": np.array([15, 200, 200]),
-            "Yellow": np.array([30, 200, 200]),
-            "Green":  np.array([60, 180, 180]),
-            "Blue":   np.array([110, 200, 200]),
-            "Purple": np.array([140, 180, 180]),
-            "Pink":   np.array([160, 100, 220])
+            "Black":  np.array([0, 0, 20]),
+            "White":  np.array([0, 0, 230]),
+            "Gray":   np.array([0, 0, 128]),
+            "Red":    np.array([0, 160, 180]),
+            "Red2":   np.array([179, 160, 180]),
+            "Orange": np.array([15, 160, 200]),
+            "Yellow": np.array([30, 160, 200]),
+            "Green":  np.array([60, 140, 160]),
+            "Blue":   np.array([110, 150, 180]),
+            "Purple": np.array([140, 140, 180]),
+            "Pink":   np.array([165, 120, 200])
         }
-        
-        # 조명 보정 (CLAHE)
+        # 조명 보정용
         self.clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
 
-    def extract_color(self, person_img):
-        """ [수학적 거리 기반] 가장 가까운 색상 찾기 """
-        if person_img is None or person_img.size == 0:
-            return "Unknown", 0.0
+        # -----------------------------------------------------------
+        # 2. [Gender/Color] CLIP 모델
+        # -----------------------------------------------------------
+        self.model_id = "openai/clip-vit-base-patch32"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        try:
+            self.model = CLIPModel.from_pretrained(self.model_id, use_safetensors=True).to(self.device)
+            self.processor = CLIPProcessor.from_pretrained(self.model_id)
+        except Exception as e:
+            print(f"❌ CLIP Load Error: {e}")
+            raise e
+        
+        # [튜닝 1] 프롬프트 단순화 (CCTV 저화질에서 인식률 상승)
+        self.gender_labels = ["man", "woman"] 
+        
+        self.color_labels = [
+            "black clothes", "white clothes", "gray clothes", 
+            "red clothes", "yellow clothes", "blue clothes", 
+            "green clothes", "pink clothes", "purple clothes", 
+            "orange clothes", "brown clothes"
+        ]
 
-        # 1. Torso Crop (가슴팍 중앙 집중)
+    def extract_attributes(self, person_img):
+        """
+        Hybrid Attribute Recognition:
+        - Color: CLIP(일반화) + HSV(검증/보정)
+        - Gender: CLIP(60%) + Heuristic(40%) [Ensemble]
+        """
+        if person_img is None or person_img.size == 0:
+            return "Unknown", 0.0, "Unknown", 0.0
+
         h, w, _ = person_img.shape
+
+        # --- [1] Color Analysis ---
+        # 가슴팍 크롭 (배경 제거)
         start_y, end_y = int(h * 0.20), int(h * 0.60)
         start_x, end_x = int(w * 0.25), int(w * 0.75)
         
         if end_y > start_y and end_x > start_x:
-            crop = person_img[start_y:end_y, start_x:end_x]
+            torso_crop = person_img[start_y:end_y, start_x:end_x]
         else:
-            crop = person_img
+            torso_crop = person_img
 
-        # 2. 전처리 (Resize -> Blur -> CLAHE)
-        resized = cv2.resize(crop, (32, 32), interpolation=cv2.INTER_AREA)
-        blurred = cv2.GaussianBlur(resized, (5, 5), 0)
+        # CLIP 추론 (Color)
+        _, _, clip_color, clip_c_conf = self._analyze_clip_color(torso_crop)
+        # HSV 검증 (Color)
+        final_color, final_c_conf = self._verify_color_with_hsv(torso_crop, clip_color, clip_c_conf)
+
+
+        # --- [2] Gender Analysis (Ensemble) ---
+        # 성별은 '전신'을 봐야 정확함 (머리스타일, 비율, 치마 등)
         
-        # CLAHE 적용 (L 채널)
-        lab = cv2.cvtColor(blurred, cv2.COLOR_BGR2Lab)
-        l, a, b = cv2.split(lab)
-        l2 = self.clahe.apply(l)
-        lab = cv2.merge((l2, a, b))
-        img_bgr = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
+        # A. CLIP Score (AI의 직감)
+        clip_gender, clip_g_score = self._analyze_clip_gender(person_img) # Male=0.0~1.0 (Low is Male)
         
-        # 3. HSV 변환
-        img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        # B. Heuristic Score (통계적 특징)
+        # 0.0(Female) ~ 1.0(Male)
+        heuristic_score = self._analyze_gender_heuristic(person_img, final_color)
         
-        # 4. [핵심] 픽셀별 거리 계산 (Vectorized Operation)
-        # 모든 픽셀을 평탄화: (N, 3)
-        pixels = img_hsv.reshape(-1, 3).astype(np.float32)
+        # C. 앙상블 (가중 합산)
+        # CLIP 60% + Heuristic 40%
+        # clip_g_score가 Male일 확률이라고 가정 (Male=Label 0)
+        # CLIP 로직에서 probs[0]은 "man"일 확률
         
-        # 빈도수 저장
-        color_votes = {k: 0 for k in self.colors if k != "Red2"}
+        final_male_prob = (clip_g_score * 0.6) + (heuristic_score * 0.4)
         
-        # 샘플링 (속도를 위해 픽셀 100개만 뽑아서 계산해도 충분)
-        if len(pixels) > 100:
-            indices = np.random.choice(len(pixels), 100, replace=False)
-            sample_pixels = pixels[indices]
+        if final_male_prob > 0.5:
+            final_gender = "Male"
+            final_g_conf = final_male_prob
         else:
-            sample_pixels = pixels
+            final_gender = "Female"
+            final_g_conf = 1.0 - final_male_prob
 
-        for px in sample_pixels:
-            h, s, v = px[0], px[1], px[2]
-            
-            min_dist = float('inf')
-            best_color = "Gray"
-            
-            # 무채색 필터링 (거리가 아니라 하드룰 적용이 더 정확함)
-            # 여기가 'Unknown 0%' 잡는 핵심
-            if v < 40: 
-                best_color = "Black"
-            elif v > 210 and s < 40:
-                best_color = "White"
-            elif s < 50:
-                best_color = "Gray"
-            else:
-                # 유채색이면 거리 계산
-                for name, centroid in self.colors.items():
-                    if name in ["Black", "White", "Gray"]: continue # 위에서 처리함
-                    
-                    c_h, c_s, c_v = centroid
-                    
-                    # Hue Distance (원형 고려: 179와 0의 차이는 1)
-                    diff_h = min(abs(h - c_h), 180 - abs(h - c_h))
-                    
-                    # 가중치 거리 계산 (Hue가 색상 결정에 가장 중요)
-                    # W_h=0.5, W_s=0.3, W_v=0.2
-                    dist = (diff_h ** 2) * 0.6 + (abs(s - c_s) ** 2) * 0.3 + (abs(v - c_v) ** 2) * 0.1
-                    
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_color = name
-                        
-                if best_color == "Red2": best_color = "Red" # Red2는 Red로 통합
+        return final_gender, final_g_conf, final_color, final_c_conf
 
-            color_votes[best_color] += 1
-
-        # 5. 최빈값 결정
-        if not color_votes: return "Gray", 0.5 # Fallback
-        
-        best_c = max(color_votes, key=color_votes.get)
-        confidence = color_votes[best_c] / len(sample_pixels)
-        
-        return best_c, confidence
-
-    def extract_gender(self, person_img):
-        """
-        [성별 개선]
-        비율(Ratio) + 상반신 색상 힌트 + 어깨 형상(간단한 픽셀 분포)
-        """
-        if person_img is None or person_img.size == 0:
-            return "Unknown", 0.0
-        
-        h, w, _ = person_img.shape
-        ratio = w / h # 너비/높이 비율
-        
-        score = 0.5 # 0.0(Female) ~ 1.0(Male)
-        
-        # 1. 비율 점수
-        # 남성은 어깨가 넓고 박시한 옷 -> 비율 큼
-        # 여성은 상대적으로 좁음
-        if ratio > 0.43: score += 0.2
-        else: score -= 0.2
-        
-        # 2. 색상 힌트 (가슴팍 색상 재활용)
-        # (이 함수 안에서 다시 계산하면 느리므로 간단히 중앙 픽셀만 샘플링)
+    def _analyze_clip_gender(self, img):
+        """ CLIP: Returns ('Male'/'Female', male_probability) """
         try:
-            cy, cx = h//2, w//2
-            center_pixel = person_img[cy, cx] # BGR
-            # BGR -> HSV
-            pixel_hsv = cv2.cvtColor(np.array([[center_pixel]]), cv2.COLOR_BGR2HSV)[0][0]
-            ph, ps, pv = pixel_hsv
+            rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb_img)
             
-            # Pink/Red/Purple 계열이면 Female 가중치
-            if (160 < ph < 180) or (ph < 10) or (140 < ph < 160):
-                if ps > 50: score -= 0.25
-        except:
-            pass
+            inputs = self.processor(
+                text=self.gender_labels, images=pil_img, return_tensors="pt", padding=True
+            ).to(self.device)
 
-        score = max(0.0, min(1.0, score))
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                probs = outputs.logits_per_image.softmax(dim=1)
+            
+            # probs[0][0] = 'man' 확률, probs[0][1] = 'woman' 확률
+            male_prob = probs[0][0].item()
+            
+            gender = "Male" if male_prob > 0.5 else "Female"
+            return gender, male_prob
+        except:
+            return "Male", 0.5 # Fallback
+
+    def _analyze_clip_color(self, img):
+        """ CLIP: Color only """
+        try:
+            rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb_img)
+            
+            inputs = self.processor(
+                text=self.color_labels, images=pil_img, return_tensors="pt", padding=True
+            ).to(self.device)
+            with torch.no_grad():
+                probs = self.model(**inputs).logits_per_image.softmax(dim=1)
+            
+            idx = probs.argmax().item()
+            conf = probs[0][idx].item()
+            
+            raw = self.color_labels[idx]
+            color_str = raw.replace(" clothes", "").capitalize()
+            return "Unknown", 0.0, color_str, conf
+        except:
+            return "Unknown", 0.0, "Gray", 0.0
+
+    def _analyze_gender_heuristic(self, img, detected_color):
+        """
+        [규칙 기반 성별 점수]
+        Returns: 0.0 (Female) ~ 1.0 (Male)
+        """
+        h, w, _ = img.shape
+        ratio = w / h
         
-        if score > 0.5: return "Male", 0.5 + (score - 0.5)
-        else: return "Female", 0.5 + (0.5 - score)
+        score = 0.5 # 중립 시작
+        
+        # 1. 비율 점수 (어깨가 넓으면 남성 가산점)
+        # 서 있는 사람 기준 w/h는 보통 0.3 ~ 0.5
+        if ratio > 0.45: score += 0.25 # 뚱뚱하거나 어깨 넓음 -> 남성 확률 Up
+        elif ratio < 0.35: score -= 0.15 # 매우 슬림 -> 여성 확률 Up (약하게)
+
+        # 2. 색상 바이어스 (강력한 힌트)
+        female_colors = ["Pink", "Purple", "Red", "Orange", "Yellow"]
+        male_colors = ["Blue", "Black", "Gray", "Green"]
+        
+        if detected_color in female_colors:
+            score -= 0.35 # 여성일 확률 대폭 증가
+        elif detected_color in male_colors:
+            score += 0.1  # 남성일 확률 소폭 증가 (남색 옷 입은 여자도 많으므로 약하게)
+
+        # 점수 클리핑 (0.0 ~ 1.0)
+        return max(0.0, min(1.0, score))
+
+    def _verify_color_with_hsv(self, img, clip_color, clip_conf):
+        """ HSV 검증 (기존 로직 유지) """
+        resized = cv2.resize(img, (32, 32), interpolation=cv2.INTER_AREA)
+        hsv = cv2.cvtColor(resized, cv2.COLOR_BGR2HSV)
+        s_median = np.median(hsv[:, :, 1])
+        v_median = np.median(hsv[:, :, 2])
+        
+        if v_median < 45: return "Black", 0.95
+        if s_median < 70:
+            if v_median > 180: return "White", 0.90
+            else: return "Gray", 0.90
+            
+        return clip_color, clip_conf
+
+    # 호환성
+    def extract_color(self, img): pass
+    def extract_gender(self, img): pass
