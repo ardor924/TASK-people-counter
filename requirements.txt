@@ -1,6 +1,5 @@
 # AI Core
 ultralytics>=8.1.0       # YOLOv8 (Detection + Tracking 포함)
-torch>=2.0.0             # Deep Learning Engine
 opencv-python>=4.8.0     # Image Processing
 numpy>=1.23.0            # Math
 
