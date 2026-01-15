@@ -21,67 +21,57 @@ ID_FUSION_RATIO = 0.015
 ZONE_START_RATIO = 0.45
 
 # =========================
-# #2 Advanced VLM Engine (Best-Frame Selection)
+# #2 VLM Attribute Engine (CLIP Optimized)
 # =========================
 class VLMAttributeEngine:
     def __init__(self):
         self.available = False
-        self.model_dir = os.path.join(os.getcwd(), "models")
-        if not os.path.exists(self.model_dir): os.makedirs(self.model_dir)
-
         try:
             import clip
             import torch
         except ImportError:
+            print("[INFO] CLIP library missing. Attempting auto-installation...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/openai/CLIP.git"])
             import clip
 
         try:
             import torch
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model, self.preprocess = clip.load("ViT-B/32", device=self.device, download_root=self.model_dir)
+            # 모델 로드 (캐시 경로: ~/.cache/clip)
+            self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
             
-            self.m_prompts = ["a man with short hair", "a male person"]
-            self.w_prompts = ["a woman with long hair", "a female person"]
-            self.color_names = ["Black", "White", "Blue", "Red", "Gray", "Yellow"]
-            self.color_prompts = [f"a person wearing {c.lower()} clothes" for c in self.color_names]
+            # [개선] 더 명확하고 대조적인 텍스트 쿼리 (성별 + 상의 색상 동시 추론)
+            self.gender_queries = ["a photo of a man", "a photo of a woman"]
+            self.color_queries = ["black shirt", "white shirt", "blue shirt", "red shirt", "gray shirt"]
             
-            self.gender_tokens = clip.tokenize(self.m_prompts + self.w_prompts).to(self.device)
-            self.color_tokens = clip.tokenize(self.color_prompts).to(self.device)
+            self.gender_tokens = clip.tokenize(self.gender_queries).to(self.device)
+            self.color_tokens = clip.tokenize(self.color_queries).to(self.device)
             self.available = True
-            print(f"[INFO] VLM Engine: Best-Frame Selection Mode Active.")
+            print(f"[INFO] VLM Engine Initialized on {self.device}")
         except Exception as e:
-            print(f"[WARN] VLM Init Failed: {e}")
+            print(f"[WARN] VLM Initialization Failed: {e}")
 
     def analyze(self, crop_cv2):
-        if not self.available: return None
+        if not self.available: return "Unknown", "Unknown"
         from PIL import Image
         import torch
         try:
-            h, w = crop_cv2.shape[:2]
-            # 상단 70% 집중 분석
-            center_crop = crop_cv2[int(h*0.05):int(h*0.75), int(w*0.1):int(w*0.9)]
-            image = Image.fromarray(cv2.cvtColor(center_crop, cv2.COLOR_BGR2RGB))
+            image = Image.fromarray(cv2.cvtColor(crop_cv2, cv2.COLOR_BGR2RGB))
             image_input = self.preprocess(image).unsqueeze(0).to(self.device)
 
             with torch.no_grad():
+                # 성별과 색상을 각각 독립적으로 계산하여 정확도 향상
                 logits_g, _ = self.model(image_input, self.gender_tokens)
-                probs_g = logits_g.softmax(dim=-1).cpu().numpy()[0]
-                m_score = np.sum(probs_g[0:2])
-                w_score = np.sum(probs_g[2:4])
-                
                 logits_c, _ = self.model(image_input, self.color_tokens)
-                probs_c = logits_c.softmax(dim=-1).cpu().numpy()[0]
-                c_idx = np.argmax(probs_c)
+                
+                gender_idx = logits_g.argmax().item()
+                color_idx = logits_c.argmax().item()
 
-            gender = "Male" if m_score > w_score else "Female"
-            g_conf = max(m_score, w_score) * 100
-            color = self.color_names[c_idx]
-            c_conf = probs_c[c_idx] * 100
-
-            return {"g": gender, "c": color, "g_cf": g_conf, "c_cf": c_conf}
+            gender = "Male" if gender_idx == 0 else "Female"
+            color = self.color_queries[color_idx].split()[0].capitalize()
+            return gender, color
         except:
-            return None
+            return "Unknown", "Unknown"
 
 # =========================
 # #3 Main Pipeline
@@ -99,19 +89,16 @@ def main():
     cap = cv2.VideoCapture(VIDEO_PATH)
     src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
     wait_time = max(1, int(1000 / src_fps))
+    
     tracker = sv.ByteTrack(lost_track_buffer=int(TRACK_BUFFER_SEC * src_fps))
 
+    # State
     track_hits = defaultdict(int)
     id_map, next_display_id = {}, 1
     track_registry = {}
     zone_dwell, counted_ids, total_count = defaultdict(int), set(), 0
-    
-    # ID별 누적 후보군 저장
-    vlm_candidates = defaultdict(list)
     id_attributes = {} 
-    
     gender_stats = {"Male": 0, "Female": 0, "Unknown": 0}
-    inference_log = []
 
     frame_idx, start_time = 0, time.time()
     fusion_dist_limit = RESIZE_WIDTH * ID_FUSION_RATIO
@@ -124,6 +111,7 @@ def main():
         fh, fw = int(frame.shape[0] * (RESIZE_WIDTH/frame.shape[1])), RESIZE_WIDTH
         frame = cv2.resize(frame, (fw, fh))
         display = frame.copy()
+
         zone_y = int(fh * ZONE_START_RATIO)
         cv2.line(display, (0, zone_y), (fw, zone_y), (0, 0, 255), 2)
 
@@ -143,6 +131,7 @@ def main():
                 x1, y1, x2, y2 = map(int, xyxy)
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
 
+                # ID Fusion
                 if raw_id not in id_map:
                     found_legacy = False
                     for disp_id, data in list(track_registry.items()):
@@ -163,36 +152,18 @@ def main():
                 active_now_ids.add(tid)
                 track_registry[tid] = {"pos": (cx, cy), "last_frame": frame_idx}
 
-                # -------------------------------------------------------
-                # [CORE] Best-Frame Selection Logic
-                # -------------------------------------------------------
+                # VLM Inference (Caching)
                 if tid not in id_attributes:
-                    if track_hits[raw_id] in [20, 30, 40]:
+                    # 사람이 가장 잘 보이는 25프레임째에 분석
+                    if track_hits[raw_id] == 25:
                         crop = frame[max(0,y1):min(fh,y2), max(0,x1):min(fw,x2)]
                         if crop.size > 0:
-                            res = vlm_engine.analyze(crop)
-                            if res: vlm_candidates[tid].append(res)
-
-                    if track_hits[raw_id] == 41:
-                        candidates = vlm_candidates[tid]
-                        if candidates:
-                            # 성별 확신도(g_cf)가 가장 높은 프레임의 데이터를 최종 선택
-                            best_res = max(candidates, key=lambda x: x["g_cf"])
-                            
-                            final_g = best_res["g"]
-                            final_c = best_res["c"]
-                            g_conf = best_res["g_cf"]
-                            c_conf = best_res["c_cf"]
-                            
-                            # 비정상 데이터 방어 (확신도 40% 미만은 Unknown)
-                            if g_conf < 40.0: final_g = "Unknown"
-                            
-                            id_attributes[tid] = (final_g, final_c, g_conf, c_conf)
-                            gender_stats[final_g] += 1
-                            inference_log.append(f"[ID {tid:02d}] Best G: {g_conf:4.1f}% | C: {c_conf:4.1f}% | Res: {final_g}/{final_c}")
-
-                attr = id_attributes.get(tid, ("Analyzing", "...", 0, 0))
-                label = f"ID:{tid} | {attr[0][:1]}({attr[2]:.0f}%) | {attr[1]}({attr[3]:.0f}%)"
+                            g, c = vlm_engine.analyze(crop)
+                            id_attributes[tid] = (g, c)
+                            gender_stats[g] += 1
+                
+                attr = id_attributes.get(tid, ("Analyzing..", ""))
+                label = f"ID {tid}: {attr[0]} ({attr[1]})"
 
                 if tid not in counted_ids and cy > zone_y:
                     zone_dwell[tid] += 1
@@ -202,34 +173,38 @@ def main():
 
                 color_box = (0, 255, 0) if tid in counted_ids else (255, 255, 255)
                 cv2.rectangle(display, (x1, y1), (x2, y2), color_box, 2)
-                cv2.putText(display, label, (x1, y1 - 10), 1, 0.8, color_box, 1)
+                cv2.putText(display, label, (x1, y1 - 10), 1, 0.9, color_box, 2)
 
-        # UI
+        # Dashboard UI
         overlay = display.copy()
         cv2.rectangle(overlay, (0, 0), (450, 160), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, display, 0.4, 0, display)
-        cv2.putText(display, f"VLM BEST-FRAME COUNT: {total_count}", (20, 45), 1, 1.8, (255, 255, 255), 2)
+        cv2.putText(display, f"VLM COUNT : {total_count}", (20, 45), 1, 1.8, (255, 255, 255), 2)
         cv2.putText(display, f"MALE : {gender_stats['Male']} | FEMALE : {gender_stats['Female']}", (20, 95), 1, 1.2, (0, 255, 255), 1)
-        cv2.putText(display, f"FPS  : {frame_idx/(time.time()-start_time):.1f} | Best-Frame Scoring ON", (20, 135), 1, 0.9, (150, 150, 150), 1)
+        cv2.putText(display, f"SOTA ENGINE: CLIP ViT-B/32", (20, 130), 1, 1, (150, 150, 150), 1)
 
         cv2.imshow("AI Tracking System", display)
         if cv2.waitKey(wait_time) & 0xFF == ord("q"): break
 
     elapsed = time.time() - start_time
-    print("\n" + "=" * 115)
-    print(f"[FINAL REPORT] BEST-FRAME VLM ATTRIBUTE ANALYSIS")
-    print("=" * 115)
-    print(f" 1. GENDER DISTRIBUTION SUMMARY")
-    print(f"    - Total Tracked: {next_display_id-1} | Male: {gender_stats['Male']} / Female: {gender_stats['Female']}")
-    print("-" * 115)
-    print(f" 2. DETAILED ANALYSIS LOGS (Max-Confidence Scores)")
-    for log in sorted(inference_log):
-        print(f"    > {log}")
-    print("-" * 115)
-    print(f" 3. PERFORMANCE DATA")
-    print(f"    - Effective FPS: {frame_idx/elapsed:.1f} (4070Ti GPU Accelerated)")
-    print(f"    - Model Strategy: Best-Frame Selection among 3 Samples")
-    print("=" * 115)
+    total_ids = next_display_id - 1
+    
+    print("\n" + "=" * 60)
+    print(f"[REPORT] SOTA VLM PEOPLE ANALYSIS SYSTEM")
+    print("=" * 60)
+    print(f" 1. GENDER DISTRIBUTION (Zero-shot)")
+    print(f"    - Total Unique Persons : {total_ids}")
+    print(f"    - Male Identified      : {gender_stats['Male']}")
+    print(f"    - Female Identified    : {gender_stats['Female']}")
+    print("-" * 60)
+    print(f" 2. TRACKING & COUNTING")
+    print(f"    - Final Count          : {total_count}")
+    print(f"    - Accuracy (Target 25) : {min(total_count/25, 25/total_count)*100:.1f}%")
+    print("-" * 60)
+    print(f" 3. PERFORMANCE")
+    print(f"    - Effective FPS        : {frame_idx/elapsed:.1f} (4070Ti Optimized)")
+    print(f"    - Model Path           : ~/.cache/clip (Auto-managed)")
+    print("=" * 60)
 
     cap.release()
     cv2.destroyAllWindows()

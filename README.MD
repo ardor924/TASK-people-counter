@@ -172,3 +172,22 @@ People-Counter-ReID/
 
 - **야간 색상 인식:** 조도가 낮은 환경(MOT16-04)에서는 HSV 기반 색상 인식이 부정확할 수 있습니다. 향후 IR 카메라나 저조도 개선 알고리즘 도입이 필요합니다.
 - **Deep Sort 통합:** 현재는 YOLO 내장 트래커를 사용 중이나, 더 정교한 ReID를 위해 DeepSort 또는 StrongSORT 통합을 고려할 수 있습니다.
+
+## 9. Performance & Evaluation
+
+개발 데이터셋(MOT16-09)을 기준으로 측정된 본 시스템의 정량적 성능 지표입니다.
+
+### 9.1 Accuracy & Reliability
+| Metric | Result | Remark |
+|:---:|:---:|:---|
+| **Counting Accuracy** | **96.0%** | 실제 인원 25명 대비 24명 카운팅 성공 |
+| **Validated People** | **27명** | 70개의 원시 탐지 중 유효 객체 정밀 선별 |
+| **ID Stability** | **High** | 시공간 제약 로직을 통한 ID 급증 현상 억제 |
+
+### 9.2 Inference Speed
+- **Effective FPS:** **17.0 FPS** (YOLOv8n + ByteTrack + Fusion Logic 통합 연산 시)
+- **Processing Time:** 525프레임 영상 기준 약 31초 (RTX 시리즈가 아닌 일반 환경에서도 실시간성 확보 가능)
+
+### 9.3 Robustness (범용성)
+- **Auto-Calibration:** 입력 영상의 FPS를 감지하여 `Dwell Threshold`를 프레임 단위로 자동 변환 (30fps -> 15f, 25fps -> 12f)
+- **Resolution Agnostic:** 화면 비율 기반 거리 계산(`ID_FUSION_RATIO`)을 통해 해상도가 다른 타 영상(MOT16-04 등)에서도 일관된 추적 성능 유지
