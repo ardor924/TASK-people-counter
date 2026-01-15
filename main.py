@@ -1,151 +1,195 @@
 import cv2
-import argparse
-import os
 import time
-import threading
-from datetime import datetime
+from collections import defaultdict
+import numpy as np
 
-from src.core import AIEngine, AttributeResolver
-from src.ui import UIManager
+import supervision as sv
+from ultralytics import YOLO
 
-g_loading_complete = False
-ai_engine = None
+# =========================
+# #1 Config
+# =========================
+VIDEO_PATH = "data/dev_day.mp4"
+MODEL_PATH = "models/yolov8n.pt"
 
-def load_ai_task():
-    global ai_engine, g_loading_complete
-    try:
-        model_path = os.path.join("models", "yolov8n.pt")
-        # 라인 위치: 0.55
-        ai_engine = AIEngine(model_path, line_pos=0.55)
-        g_loading_complete = True
-    except Exception as e:
-        print(f"Error: {e}")
-        os._exit(1)
+RESIZE_WIDTH = 960
+CONF_THRESH = 0.5
+MIN_HITS = 3
+LONG_TRACK_THRESH = 100   # frames
 
-def main(source):
-    global g_loading_complete, ai_engine
-
-    ui = UIManager(display_size=(960, 540))
-    cap = cv2.VideoCapture(source)
+# =========================
+# #2 Main
+# =========================
+def main():
+    cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
-        print("Error: Video not found")
-        return
+        raise RuntimeError("Video open failed")
 
-    orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0: fps = 30
-    delay_ms = int(1000 / fps)
+    model = YOLO(MODEL_PATH)
+    tracker = sv.ByteTrack()
 
-    # UI 로딩 (즉시)
-    ret, first_frame = cap.read()
-    if ret:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        loading_img = ui.draw_loading(first_frame)
-        cv2.imshow("People Counter", loading_img)
-        cv2.waitKey(1)
+    frame_idx = 0
+    start_time = time.time()
 
-    # AI 로딩 (백그라운드)
-    threading.Thread(target=load_ai_task, daemon=True).start()
+    # =========================
+    # Tracking statistics
+    # =========================
+    track_hits = defaultdict(int)
+    track_lifetime = defaultdict(int)
+    track_history = defaultdict(list)
 
-    dots = ""
-    last_tick = time.time()
-    while not g_loading_complete:
-        if time.time() - last_tick > 0.5:
-            dots = "." * ((len(dots)+1)%4)
-            last_tick = time.time()
-            loading_img = ui.draw_loading(first_frame, dots)
-            cv2.imshow("People Counter", loading_img)
-            if cv2.waitKey(100) & 0xFF == ord('q'): return
+    valid_ids = set()
+    short_tracks = set()
+    long_tracks = set()
 
-    # 준비 완료
-    # [수정] supervision line_zone 객체 자체를 리턴받음
-    sv_line_zone = ai_engine.init_line_zone(orig_w, orig_h)
-    resolver = AttributeResolver()
-    
-    log_data = []
-    max_density = 0
-    frame_cnt = 0
-    paused = False
-    session_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    max_id = 0
+    peak_active = 0
+    frames_with_detection = 0
 
-    print("✅ System Ready.")
+    # =========================
+    # Line crossing
+    # =========================
+    counted_ids = set()
+    total_count = 0
+    COUNT_LINE_RATIO = 0.6  # 화면 하단 60%
 
+    print("[INFO] Video started")
+
+    # =========================
+    # Main Loop
+    # =========================
     while True:
-        loop_start = time.time()
-        
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'): break
-        elif key == ord(' '): paused = not paused
-        
-        if paused:
-            time.sleep(0.1)
-            continue
-
         ret, frame = cap.read()
-        if not ret: break
-        frame_cnt += 1
+        if not ret:
+            break
 
-        # A. AI Process
-        detections, cross_in, cross_out = ai_engine.process_frame(frame)
+        frame_idx += 1
 
-        # B. Analysis
-        labels = []
-        for i, (xyxy, mask, conf, class_id, track_id, data) in enumerate(detections):
-            if track_id is None: 
-                labels.append("")
-                continue
+        # Resize
+        h, w = frame.shape[:2]
+        scale = RESIZE_WIDTH / w
+        frame = cv2.resize(frame, (RESIZE_WIDTH, int(h * scale)))
+        display = frame.copy()
 
-            attr = resolver.resolve(frame, xyxy, track_id)
-            label = f"ID:{track_id}|{attr['gender'][0]}({int(attr['g_conf']*100)}%)|{attr['color']}({int(attr['c_conf']*100)}%)"
-            labels.append(label)
+        frame_h = frame.shape[0]
+        count_line_y = int(frame_h * COUNT_LINE_RATIO)
 
-            direction = None
-            if len(cross_in) > i and cross_in[i]: direction = "IN"
-            elif len(cross_out) > i and cross_out[i]: direction = "OUT"
-            
-            if direction:
-                log_data.append({
-                    "Frame": frame_cnt, "Time": datetime.now().strftime("%H:%M:%S"),
-                    "ID": track_id, "Gender": attr['gender'], "Color": attr['color'],
-                    "Direction": direction
-                })
+        # Detection
+        results = model(frame, verbose=False)[0]
+        detections = sv.Detections.from_ultralytics(results)
 
-        # C. Draw
-        tin, tout = ai_engine.get_counts()
-        max_density = max(max_density, len(detections))
-        fps_real = 1.0 / (time.time() - loop_start) if (time.time() - loop_start) > 0 else 0
+        if len(detections) > 0:
+            detections = detections[detections.confidence >= CONF_THRESH]
 
-        # [UI 그리기] sv_line_zone을 넘겨줌
-        frame = ui.draw_main_ui(frame, detections, labels, sv_line_zone, fps_real)
-        frame = ui.draw_overlay_text(frame, tin+tout, len(detections), fps_real)
+        detections = tracker.update_with_detections(detections)
 
-        display = ui.resize_for_display(frame)
-        cv2.imshow("People Counter", display)
+        active_ids = set()
 
-        proc_time = (time.time() - loop_start) * 1000
-        wait = max(1, int(delay_ms - proc_time))
-        if cv2.waitKey(wait) & 0xFF == ord('q'): break
+        if detections.tracker_id is not None:
+            frames_with_detection += 1
 
-    # End
+            for xyxy, track_id in zip(detections.xyxy, detections.tracker_id):
+                tid = int(track_id)
+                max_id = max(max_id, tid)
+
+                x1, y1, x2, y2 = map(int, xyxy)
+                cx = (x1 + x2) // 2
+                cy = (y1 + y2) // 2
+
+                track_hits[tid] += 1
+                track_lifetime[tid] += 1
+                track_history[tid].append((cx, cy))
+                active_ids.add(tid)
+
+                # Short track 판단
+                if track_hits[tid] < MIN_HITS:
+                    short_tracks.add(tid)
+                    continue
+
+                valid_ids.add(tid)
+
+                # Long track 판단
+                if track_lifetime[tid] >= LONG_TRACK_THRESH:
+                    long_tracks.add(tid)
+
+                # =========================
+                # Line Crossing Logic
+                # =========================
+                if tid not in counted_ids and len(track_history[tid]) >= 2:
+                    _, prev_y = track_history[tid][-2]
+                    _, curr_y = track_history[tid][-1]
+
+                    if prev_y < count_line_y <= curr_y:
+                        counted_ids.add(tid)
+                        total_count += 1
+
+                # Draw box
+                cv2.rectangle(display, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(
+                    display, f"ID {tid}",
+                    (x1, y1 - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2
+                )
+
+        peak_active = max(peak_active, len(active_ids))
+
+        # =========================
+        # Overlay
+        # =========================
+        cv2.line(display, (0, count_line_y), (display.shape[1], count_line_y),
+                 (0, 0, 255), 2)
+
+        cv2.putText(
+            display,
+            f"Frame {frame_idx} | Active {len(active_ids)} | Count {total_count}",
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2
+        )
+
+        cv2.imshow("Tracking", display)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    # =========================
+    # Result Calculation
+    # =========================
+    elapsed = time.time() - start_time
+    fps = frame_idx / elapsed
+
+    lifetimes = list(track_lifetime.values())
+    avg_life = np.mean(lifetimes)
+    median_life = int(np.median(lifetimes))
+
+    short_ratio = (len(short_tracks) / len(track_lifetime)) * 100
+    long_ratio = (len(long_tracks) / len(track_lifetime)) * 100
+
+    id_reuse_ratio = max_id / max(1, len(valid_ids))
+    stability_score = peak_active * avg_life / max_id
+    unique_person_est = total_count * (avg_life / frame_idx)
+
+    # =========================
+    # Result Output
+    # =========================
+    print("=" * 50)
+    print(f"[RESULT] TOTAL FRAMES        : {frame_idx}")
+    print(f"[RESULT] MAX ID              : {max_id}")
+    print(f"[RESULT] VALID IDs           : {len(valid_ids)}")
+    print(f"[RESULT] PEAK ACTIVE IDS     : {peak_active}")
+    print(f"[RESULT] AVG TRACK LIFE      : {avg_life:.1f} frames")
+    print(f"[RESULT] MEDIAN TRACK LIFE   : {median_life} frames")
+    print(f"[RESULT] LONG TRACK %        : {long_ratio:.1f} %")
+    print(f"[RESULT] SHORT TRACK %       : {short_ratio:.1f} %")
+    print(f"[RESULT] ID REUSE RATIO      : {id_reuse_ratio:.2f}")
+    print(f"[RESULT] DETECT FRAMES       : {frames_with_detection}/{frame_idx}")
+    print(f"[RESULT] EFFECTIVE FPS       : {fps:.1f}")
+    print(f"[RESULT] STABILITY SCORE     : {stability_score:.1f}")
+    print(f"[RESULT] UNIQUE PERSON EST.  : {unique_person_est:.1f}")
+    print(f"[RESULT] LINE COUNT TOTAL    : {total_count}")
+    print("=" * 50)
+
     cap.release()
     cv2.destroyAllWindows()
-    
-    total_cnt = ai_engine.get_counts()[0] + ai_engine.get_counts()[1]
-    
-    final_report = ui.save_results(log_data, os.path.basename(source), 
-                                   session_start, total_cnt, max_density)
-    
-    cv2.imshow("Final Report", final_report)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--source', type=str, default='data/dev_day.mp4')
-    args = parser.parse_args()
-    
-    if os.path.exists(args.source):
-        main(args.source)
-    else:
-        print("File not found.")
+    main()

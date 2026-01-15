@@ -10,15 +10,14 @@ class AIEngine:
         import supervision as sv
         self.sv = sv
         
-        # 모델 로드
         if not os.path.exists(model_path): model_path = "yolov8n.pt"
         self.model = YOLO(model_path)
         
-        # [ID 폭증 해결을 위한 끈질긴 트래커 설정]
+        # [ID 폭증 해결을 위한 극한의 설정]
         self.tracker = sv.ByteTrack(
-            track_activation_threshold=0.2,   # 감지 문턱값 낮춤 (더 잘 잡게)
-            lost_track_buffer=120,            # 4초간 사라져도 ID 유지 (끈질김)
-            minimum_matching_threshold=0.5,   # [중요] 0.8->0.5 (모양이 좀 변해도 같은 ID로 인식)
+            track_activation_threshold=0.1,    # 0.25 -> 0.1 (아주 작은 확률도 놓치지 않음)
+            lost_track_buffer=150,             # 120 -> 150 (5초 동안 사라져도 기억)
+            minimum_matching_threshold=0.3,    # 0.8 -> 0.3 (조금만 겹쳐도 같은 ID로 인정)
             frame_rate=30
         )
         
@@ -26,39 +25,34 @@ class AIEngine:
         self.line_zone = None 
 
     def init_line_zone(self, w, h):
-        """ Supervision LineZone 정석 설정 """
         y = int(h * self.line_pos_ratio)
         start = self.sv.Point(0, y)
         end = self.sv.Point(w, y)
         
-        # Supervision의 트리거 구역 생성
-        self.line_zone = self.sv.LineZone(start=start, end=end)
-        
-        # 시각화용 선 객체 반환
+        # [카운팅 성공 핵심] 발이 아닌 'Center' 기준
+        self.line_zone = self.sv.LineZone(
+            start=start, 
+            end=end,
+            triggering_anchors=(self.sv.Position.CENTER,)
+        )
         return self.line_zone
 
     def process_frame(self, frame):
-        # 1. 추론
-        results = self.model(frame, verbose=False)[0]
+        # A. 추론 (conf=0.25로 조금 낮춰서 탐지율 확보)
+        results = self.model(frame, verbose=False, conf=0.25)[0]
         detections = self.sv.Detections.from_ultralytics(results)
-        
-        # 2. 사람만 필터링 (class_id 0)
         detections = detections[detections.class_id == 0]
 
-        # 3. 트래킹 (ID 부여)
-        # 여기서 ID가 튀지 않도록 위에서 설정한 파라미터가 작동함
+        # B. 트래킹
         detections = self.tracker.update_with_detections(detections)
 
-        # 4. 카운팅 (Supervision LineZone Trigger)
+        # C. 카운팅
         cross_in, cross_out = [], []
-        
-        # 감지된 객체가 있고, 라인존이 설정되어 있을 때만 트리거
-        if self.line_zone is not None and len(detections) > 0:
-            cross_in, cross_out = self.line_zone.trigger(detections=detections)
+        if self.line_zone and len(detections) > 0:
+             cross_in, cross_out = self.line_zone.trigger(detections=detections)
         else:
-            # 객체가 없으면 False 리스트 생성
-            cross_in = [False] * len(detections)
-            cross_out = [False] * len(detections)
+             cross_in = [False] * len(detections)
+             cross_out = [False] * len(detections)
         
         return detections, cross_in, cross_out
 
@@ -68,11 +62,10 @@ class AIEngine:
         return 0, 0
 
 class AttributeResolver:
-    """ 속성 분석기 (Voting) """
+    """ 속성 분석기 """
     def __init__(self):
         self.votes = {}
         self.locked_info = {}
-        # HSV 색상
         self.colors_hsv = {
             "Red":    ([0, 100, 100], [10, 255, 255]),
             "Blue":   ([90, 60, 40], [135, 255, 255]),
