@@ -6,7 +6,7 @@ import sys
 from collections import defaultdict
 import torch
 
-# src/ 폴더를 시스템 경로에 추가 (모듈 참조 안전성 확보)
+# src/ 폴더를 시스템 경로에 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 # 모듈 임포트
@@ -22,22 +22,20 @@ def main():
     cv2.namedWindow("AI Tracking System", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("AI Tracking System", RESIZE_WIDTH, int(RESIZE_WIDTH * 0.6))
     
-    # 지연 로딩 (YOLO, Supervision)
+    # 지연 로딩
     import supervision as sv
     from ultralytics import YOLO
 
-    # 2. AI 엔진 및 탐지기 로드
+    # 2. AI 엔진 로드
     print(f"[INFO] Loading YOLOv8 Detector from {MODEL_PATH}...")
     detector = YOLO(MODEL_PATH)
     vlm_engine = VLMAttributeEngine()
     
-    # [수정됨] 영상 경로 설정 (config.py의 변수 사용)
-    # VIDEO_PATH 변수가 아니라 config.py에서 가져온 DEFAULT_VIDEO_PATH를 사용합니다.
+    # 영상 경로 설정
     target_video = DEFAULT_VIDEO_PATH 
     
     if not os.path.exists(target_video):
         print(f"[ERROR] Video file not found: {target_video}")
-        print("Please check 'src/config.py' or 'data/' folder.")
         return
 
     cap = cv2.VideoCapture(target_video)
@@ -45,14 +43,20 @@ def main():
         print(f"[ERROR] Could not open video stream.")
         return
 
-    src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    # [FPS 제어 로직 - 스마트 싱크]
+    # 영상의 원래 FPS를 가져오되, 너무 빠르면 30으로 제한 
+    raw_fps = cap.get(cv2.CAP_PROP_FPS)
+    target_fps = min(raw_fps, 30.0) if raw_fps > 0 else 30.0
+    frame_interval_ms = int(1000 / target_fps)
+    
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    wait_time = max(1, int(1000 / src_fps))
+    print(f"[INFO] Target Video: {os.path.basename(target_video)}")
+    print(f"[INFO] Speed Control: Native {raw_fps:.1f} FPS -> Sync to {target_fps:.1f} FPS")
     
     # 트래커 설정
-    tracker = sv.ByteTrack(lost_track_buffer=int(TRACK_BUFFER_SEC * src_fps))
+    tracker = sv.ByteTrack(lost_track_buffer=int(TRACK_BUFFER_SEC * target_fps))
 
-    # 3. 데이터 및 통계 변수 초기화
+    # 데이터 초기화
     track_hits = defaultdict(int)
     id_map, next_display_id = {}, 1
     track_registry = {}
@@ -66,32 +70,33 @@ def main():
     inference_log = []
     conf_scores = [] 
 
-    frame_idx, start_time = 0, time.time()
+    frame_idx = 0
+    start_time = time.time() # 전체 실행 시간 측정용
     fusion_dist_limit = RESIZE_WIDTH * ID_FUSION_RATIO
 
-    print(f"[INFO] Analysis Started: {os.path.basename(target_video)}")
+    print(f"[INFO] Analysis Started...")
 
     # 4. 메인 분석 루프
     while True:
+        loop_start_time = time.time() # [Sync] 프레임 처리 시작 시간 측정
+
         ret, frame = cap.read()
         if not ret: break
         frame_idx += 1
 
-        # 프레임 리사이징 및 ROI 표시
+        # 프레임 리사이징
         fh, fw = int(frame.shape[0] * (RESIZE_WIDTH/frame.shape[1])), RESIZE_WIDTH
         frame = cv2.resize(frame, (fw, fh))
         display = frame.copy()
         zone_y = int(fh * ZONE_START_RATIO)
         cv2.line(display, (0, zone_y), (fw, zone_y), (0, 0, 255), 2)
 
-        # 객체 탐지 (YOLO)
-        # GPU 사용 가능 여부 체크
+        # 객체 탐지
         device = 0 if torch.cuda.is_available() else "cpu"
         results = detector(frame, verbose=False, device=device)[0]        
-        
         detections = sv.Detections.from_ultralytics(results)
         
-        # 기하학적 필터링 (Aspect Ratio)
+        # 필터링
         valid_indices = []
         for i, xyxy in enumerate(detections.xyxy):
             x1, y1, x2, y2 = xyxy
@@ -114,12 +119,12 @@ def main():
                 x1, y1, x2, y2 = map(int, xyxy)
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
 
-                # ID Fusion 알고리즘
+                # ID Fusion
                 if raw_id not in id_map:
                     found_legacy = False
                     for disp_id, data in list(track_registry.items()):
                         if disp_id in active_now_ids: continue 
-                        if frame_idx - data["last_frame"] > (FORGET_TIME_SEC * src_fps):
+                        if frame_idx - data["last_frame"] > (FORGET_TIME_SEC * target_fps):
                             if disp_id in track_registry: del track_registry[disp_id]
                             continue
                         dist = np.sqrt((cx - data["pos"][0])**2 + (cy - data["pos"][1])**2)
@@ -135,7 +140,7 @@ def main():
                 active_now_ids.add(tid)
                 track_registry[tid] = {"pos": (cx, cy), "last_frame": frame_idx}
 
-                # VLM 분석 (Sparse Sampling: 20, 30, 40 프레임)
+                # VLM 분석
                 if tid not in id_attributes:
                     if track_hits[raw_id] in [20, 30, 40]:
                         crop = frame[max(0,y1):min(fh,y2), max(0,x1):min(fw,x2)]
@@ -143,7 +148,6 @@ def main():
                             res = vlm_engine.analyze(crop)
                             if res: vlm_candidates[tid].append({'res': res, 'img': crop.copy()})
 
-                    # 분석 확정 및 Best Frame 채택
                     if track_hits[raw_id] == 41:
                         candidates = vlm_candidates[tid]
                         if candidates:
@@ -169,32 +173,40 @@ def main():
                 attr = id_attributes.get(tid, ("Analyzing", "...", 0, 0))
                 label = f"ID:{tid} | {attr[0][:1]}({attr[2]:.0f}%) | {attr[1]}({attr[3]:.0f}%)"
 
-                # 카운팅 로직 (ROI 통과 시)
+                # 카운팅
                 if tid not in counted_ids and cy > zone_y:
                     zone_dwell[tid] += 1
-                    if zone_dwell[tid] >= (DWELL_TIME_SEC * src_fps):
+                    if zone_dwell[tid] >= (DWELL_TIME_SEC * target_fps):
                         counted_ids.add(tid)
                         total_count += 1
 
-                # 바운딩 박스 및 텍스트 렌더링
                 color_box = (0, 255, 0) if tid in counted_ids else (255, 255, 255)
                 cv2.rectangle(display, (x1, y1), (x2, y2), color_box, 2)
                 cv2.putText(display, label, (x1, y1 - 10), 1, 0.8, color_box, 1)
 
-        # 상단 UI 패널
+        # UI 표시
         overlay = display.copy()
         cv2.rectangle(overlay, (0, 0), (450, 160), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, display, 0.4, 0, display)
         cv2.putText(display, f"VLM ROBUST SYSTEM: {os.path.basename(target_video)}", (20, 45), 1, 1.5, (255, 255, 255), 2)
         cv2.putText(display, f"MALE : {gender_stats['Male']} | FEMALE : {gender_stats['Female']}", (20, 95), 1, 1.2, (0, 255, 255), 1)
         
+        # [Sync] 실제 경과 시간 기준 FPS 표시
+        elapsed_total = time.time() - start_time
+        real_fps = frame_idx / elapsed_total if elapsed_total > 0 else 0
+        
         prog = int(frame_idx/total_frames*100) if total_frames > 0 else 0
-        cv2.putText(display, f"PROGRESS : {prog}% | FPS : {frame_idx/(time.time()-start_time):.1f}", (20, 135), 1, 0.9, (150, 150, 150), 1)
+        cv2.putText(display, f"PROG : {prog}% | FPS : {real_fps:.1f} (Limit: {target_fps:.0f})", (20, 135), 1, 0.9, (150, 150, 150), 1)
 
         cv2.imshow("AI Tracking System", display)
-        if cv2.waitKey(wait_time) & 0xFF == ord("q"): break
+        
+        # [Smart FPS Sync] 처리 시간을 고려하여 남은 시간만큼만 대기
+        proc_time_ms = (time.time() - loop_start_time) * 1000
+        wait_ms = max(1, int(frame_interval_ms - proc_time_ms))
+        
+        if cv2.waitKey(wait_ms) & 0xFF == ord("q"): break
 
-    # 5. 후처리 및 리포트 저장
+    # 5. 후처리
     cap.release()
     cv2.destroyAllWindows()
     
@@ -203,7 +215,6 @@ def main():
     video_base_name = os.path.splitext(os.path.basename(target_video))[0]
     final_fps = frame_idx/elapsed
     
-    # 유틸리티 함수 호출
     save_best_samples(video_base_name, best_crops_store)
     generate_report(video_base_name, total_count, gender_stats, avg_conf, final_fps, inference_log)
     show_summary_window(video_base_name, total_count, gender_stats, avg_conf, final_fps)

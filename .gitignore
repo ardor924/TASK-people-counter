@@ -241,7 +241,6 @@ __pycache__/
 
 # Video data
 *.mp4
-*.avi
 
 #weight
 models/*.pt

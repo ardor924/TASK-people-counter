@@ -6,8 +6,10 @@ import os
 # =========================
 
 # Paths
+DEFAULT_VIDEO_PATH = "data/sample.avi"
 # DEFAULT_VIDEO_PATH = "data/dev_day.mp4"
-DEFAULT_VIDEO_PATH = "data/eval_night.mp4"
+# DEFAULT_VIDEO_PATH = "data/eval_day.mp4"
+# DEFAULT_VIDEO_PATH = "data/eval_night.mp4"
 # DEFAULT_VIDEO_PATH = "data/eval_indoors.mp4"
 MODEL_PATH = "models/yolov8n.pt"
 

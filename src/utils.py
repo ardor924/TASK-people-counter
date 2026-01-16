@@ -9,7 +9,6 @@ def get_device_name():
     try:
         import torch
         if torch.cuda.is_available():
-            # 예: NVIDIA GeForce RTX 4070 Ti
             return torch.cuda.get_device_name(0)
         return "CPU (Intel/AMD)"
     except:
@@ -21,7 +20,7 @@ def create_directories():
         if not os.path.exists(folder): os.makedirs(folder)
 
 def save_best_samples(video_name, best_crops_store):
-    """상위 5개 이미지 저장 (예외 처리 추가)"""
+    """상위 5개 이미지 저장"""
     if not best_crops_store:
         print("\n[INFO] No samples to save (No detections).")
         return
@@ -44,19 +43,16 @@ def save_best_samples(video_name, best_crops_store):
         except Exception as e:
             print(f"   > Failed to save sample ID {tid}: {e}")
 
-def generate_report(video_name, total_count, gender_stats, avg_conf, fps, inference_log):
-    """텍스트 리포트 생성 (동적 GPU 이름 반영)"""
+# [수정됨] file_prefix 파라미터 추가 (기본값 "")
+def generate_report(video_name, total_count, gender_stats, avg_conf, fps, inference_log, file_prefix=""):
+    """텍스트 리포트 생성 (파일명 접두사 지원)"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_filename = f"logs/report_{video_name}_{timestamp}.txt"
     
-    # [동적 장치명 감지]
+    # 접두사가 있으면 붙이고, 없으면 그냥 report_...
+    filename_header = f"{file_prefix}report" if file_prefix else "report"
+    report_filename = f"logs/{filename_header}_{video_name}_{timestamp}.txt"
+    
     device_name = get_device_name()
-
-    # ZeroDivisionError 방지
-    if total_count > 0:
-        eval_acc = min(total_count/25, 25/total_count) * 100
-    else:
-        eval_acc = 0.0
 
     male_cnt = gender_stats.get('Male', 0)
     female_cnt = gender_stats.get('Female', 0)
@@ -71,6 +67,7 @@ def generate_report(video_name, total_count, gender_stats, avg_conf, fps, infere
     - Processed Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     - Storage Path   : {report_filename}
     - Hardware       : {device_name}
+    - System Mode    : {'Low-Spec / Hybrid' if file_prefix else 'Standard / VLM'}
 
  2. ATTRIBUTE DISTRIBUTION SUMMARY
     - Final Count (ROI)    : {total_count}
@@ -80,9 +77,6 @@ def generate_report(video_name, total_count, gender_stats, avg_conf, fps, infere
  3. SYSTEM PERFORMANCE
     - Effective FPS      : {fps:.1f} (Running on {device_name})
     - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
-
- 4. ACCURACY ASSESSMENT
-    - Evaluation Acc     : {eval_acc:.1f}% (vs. MOT16 Ground Truth Ref: 25)
 ===================================================================================================================
 """
     print(content)
