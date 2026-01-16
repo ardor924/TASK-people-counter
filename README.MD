@@ -61,10 +61,25 @@
 4. **VLM Attribute Analysis:** CLIP 모델을 통한 성별 및 의상 색상(Black, White, Blue, Red, Gray, Yellow) 정밀 추론
 
 5. **ROI Line Counting:** ROI 경계면 통과 시 체류 시간(Dwell Time) 검증 후 최종 카운트 반영
+
+### 2-1. 시스템 엔진별 기술 및 모델 비교표
+
+| **구분**     | **일반 모드 (VLM Mode)**                                                        | **경량화 모드 (Hybrid Mode)**                                        |
+| ---------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **타겟환경**   | 외장 GPU (RTX 30/40 시리즈)                                                      | CPU 및 내장 그래픽 (Laptop/Edge)                                      |
+| **핵심 가치**  | **높은 분석 정밀도 및 범용성**                                                         | **빠른 추론 속도 및 효율성**                                              |
+| **객체 탐지**  | **YOLOv8n** (Detection)                                                     | **YOLOv8n** (Detection)                                         |
+| **객체 추적**  | **ByteTrack** (Supervision)                                                 | **ByteTrack** (Supervision)                                     |
+| **추적 안정화** | **ID Fusion** (유클리드 거리 기반)                                                  | **ID Fusion** (유클리드 거리 기반)                                      |
+| **성별 분석**  | **OpenAI CLIP (ViT-B/16)**<br><br>  <br><br>_(Semantic Prompt Matching)_    | **YOLOv8n-cls**<br><br>  <br><br>_(Lightweight Classification)_ |
+| **의상 색상**  | **OpenAI CLIP (ViT-B/16)**<br><br>  <br><br>_(Zero-shot Semantic matching)_ | **HSV K-Means Clustering**<br><br>  <br><br>_(수학적 통계 기반 군집화)_   |
+| **판단 로직**  | **Confidence Best-Selection**<br><br>  <br><br>_(최고 신뢰도 프레임 채택)_            | **Temporal Weighted Voting**<br><br>  <br><br>_(시계열 가중치 투표)_    |
+| **특징**     | 추가 학습 없는 제로샷 추론                                                             | 저사양 환경 실시간성 확보                                                  |
+
 ---
 # 3.데이터셋 정의(Dataset Description)
 ### 3-1 원본 데이터셋
-본 프로젝트에서는 [MOT Challenge 2016 (MOT16)](https://motchallenge.net/data/MOT16/) 데이터셋 을 사용하였습니다.
+본 프로젝트에서는 [MOT Challenge 2016 (MOT16)](https://motchallenge.net/data/MOT16/) 데이터셋의 일부를 사용하였습니다.
 
 |   Dataset    |      Usage      | Features                                |
 | :----------: | :-------------: | :-------------------------------------- |
@@ -100,8 +115,8 @@ TASK-people-counter/
 │   └── eval_indoors.mp4  # 실내     / 동적 카메라 
 │
 ├── models/               # YOLO,CLIP 모델 가중치 저장소
-│   ├── yolov8n.pt
-│   ├── yolov8n-cls.pt
+│   ├── yolov8n.pt        # YOLO 모델 다운로드(파일이 미리없어도 자동다운)
+│   ├── yolov8n-cls.pt    
 │   └── ViT-B-16.pt       # VLM 모델 다운로드(파일이 미리없어도 자동다운)
 │
 ├── logs/                 # 영상종료 결과 로그 보관소
@@ -137,6 +152,8 @@ TASK-people-counter/
 - **Hardware:** RTX 4070Ti (12GB) / RAM 48GB (DDR4)
 - **OS:** Windows 10 (Local PC)
 
+테스트 디바이스 : 
+RTX4060 PC | RTX2060 PC | RTX 3080 PC | inter graphic notebook 
 #### 📋 시스템 요구 사양
 |**구분**|**권장 사양 (VLM 모드)**|**최소 사양 (저사양 모드)**|
 |---|---|---|
@@ -158,15 +175,20 @@ cd TASK-people-counter
 ```
 
 ### 6-2. 소스 영상 준비
-하단 링크에서 테스트 영상을 다운로드하여 `data/` 폴더에 넣어주세요. (미설정 시 기본 샘플로 실행됩니다.)
+하단 링크에서 테스트 영상을 다운로드하여 `data/` 폴더에 넣어주세요. (**영상이 없을시 SW가 실행되지 않으며**, 파일경로 미설정 시 기본 샘플로 실행됩니다.)
 
-- **영상 출처:** [MOT Challenge 2016](https://motchallenge.net/data/MOT16/)
+- **영상 출처:** [MOT Challenge 2016](https://motchallenge.net/data/MOT16/), [MOT Challenge 2016](https://motchallenge.net/data/MOT16/)
 - **라이선스:** CC BY-NC-SA 4.0
 - **파일링크**
-	▶ [dev_day.mp4(MOT16-09) :  주간-카메라고정 실외영상](https://drive.google.com/uc?export=download&id=1zLggWjesXdZrG913pr9JdhvCqYgtWygr)
 
-	▶ [eval_day.mp4(MOT16-04) : 야간-카메라고정 실외영상(붐비는,원거리)](https://drive.google.com/uc?export=download&id=1PAaZPVPciWOAVZ8t-A1qJy4_dvDwAG0i)
-    
+	▶ sample.avi(TownCentreXVID) :  주간-카메라고정 실외영상 : 기본내장
+	
+	▶ [dev_day.mp4(MOT16-09) :  주간-카메라고정 실외영상](https://drive.google.com/uc?export=download&id=1zLggWjesXdZrG913pr9JdhvCqYgtWygr)	
+	
+	▶ [eval_day.mp4(Oxford Town Centre) :  주간-카메라고정 실외영상](https://drive.google.com/uc?export=download&id=10FdQ7iV6_I9FuJIQAT3X3ImvHl9f7LWF)
+	
+	▶ [eval_nitght.mp4(MOT16-04) : 야간-카메라고정 실외영상(붐비는,원거리)](https://drive.google.com/uc?export=download&id=1PAaZPVPciWOAVZ8t-A1qJy4_dvDwAG0i)
+	
 	▶ [eval_indoors.mp4(MOT16-03) : 실내-비고정/동적 카메라 영상](https://drive.google.com/uc?export=download&id=1ZKL2iqgjA5LUfd9dUvikreBxUsdDELLc)
 
 ### 6-3 원클릭 간편설치&자동실행
@@ -279,9 +301,6 @@ Yolov8n + SuperVision + VLM(CLIP:ViT-B/16) 조합
  3. SYSTEM PERFORMANCE
     - Effective FPS      : 15.6 (Target 15+ on 4070Ti)
     - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
-
- 4. ACCURACY ASSESSMENT
-    - Evaluation Acc     : 84.0% (vs. MOT16 Ground Truth Ref)
 ===================================================================================================================
 
 [APPENDIX: INDIVIDUAL OBJECT LOGS]
@@ -327,9 +346,6 @@ Yolov8n + SuperVision + VLM(CLIP:ViT-B/16) 조합
  3. SYSTEM PERFORMANCE
     - Effective FPS      : 16.1 (Target 15+ on 4070Ti)
     - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
-
- 4. ACCURACY ASSESSMENT
-    - Evaluation Acc     : 88.0% (vs. MOT16 Ground Truth Ref)
 ===================================================================================================================
 
 [APPENDIX: INDIVIDUAL OBJECT LOGS]
@@ -388,9 +404,6 @@ Yolov8n + SuperVision + VLM(CLIP:ViT-B/16) 조합
  3. SYSTEM PERFORMANCE
     - Effective FPS      : 15.5 (Target 15+ on 4070Ti)
     - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
-
- 4. ACCURACY ASSESSMENT
-    - Evaluation Acc     : 83.3% (vs. MOT16 Ground Truth Ref)
 ===================================================================================================================
 
 [APPENDIX: INDIVIDUAL OBJECT LOGS]
@@ -539,5 +552,8 @@ dev_day(주간실외 / 고정카메라) :
 
 5. **하드웨어 성능별 브랜치관리**
 	+ 고성능,일반성능,경량화 버전별로 개발 브랜치 나눠서 고도화
+
+6. **TensorRT/ONNX 가속 적용**
+	-  Intel iGPU (내장 그래픽12GB) 노트북환경에서 경량화 모델 구동시 FPS가 8~10 수준으로 나왔기때문에 저사양하드웨어에서 추론속도를 위해 TensorRT/ONNX 가속을 적용하여 실시간성(15 FPS+)확보하는것으로 개선
 ---
 

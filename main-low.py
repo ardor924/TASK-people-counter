@@ -15,9 +15,9 @@ from src.utils import create_directories, save_best_samples, generate_report, sh
 # =========================
 # #1 Global Policy (Low-Spec / Edge Mode)
 # =========================
-VIDEO_PATH = "data/sample.avi" 
+# VIDEO_PATH = "data/sample.avi" 
 # VIDEO_PATH = "data/dev_day.mp4"
-# VIDEO_PATH = "data/eval_day.mp4"
+VIDEO_PATH = "data/eval_day.mp4"
 # VIDEO_PATH = "data/eval_night.mp4"
 # VIDEO_PATH = "data/eval_indoors.mp4"
 
