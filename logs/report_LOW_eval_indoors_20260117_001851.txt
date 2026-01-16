@@ -1,0 +1,26 @@
+
+===================================================================================================================
+[FINAL HYBRID SYSTEM REPORT (VOTING ENABLED)]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : eval_indoors.mp4
+    - Processed Date : 2026-01-17 00:18:51
+    - Storage Path   : logs/report_LOW_eval_indoors_20260117_001851.txt
+
+ 2. PERFORMANCE SUMMARY
+    - Total Tracked  : 13
+    - Final Count    : 7
+    - Gender Stats   : Male(3) / Female(1) / Unk(1)
+    - Effective FPS  : 17.0
+    
+ 3. CONFIGURATION
+    - Mode           : Low-Spec / Hybrid Voting
+    - Logic          : 3-Frame Temporal Voting (Majority Rule)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL LOGS]
+> [ID 02] Final: Unk(11) | Green
+> [ID 03] Final: Male(29) | Red
+> [ID 04] Final: Female(16) | Green
+> [ID 06] Final: Male(31) | White
+> [ID 10] Final: Male(25) | Green
