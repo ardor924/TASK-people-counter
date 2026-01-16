@@ -1,0 +1,33 @@
+
+===================================================================================================================
+[FINAL SYSTEM EVALUATION REPORT]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : eval_night.mp4
+    - Processed Date : 2026-01-16 22:32:08
+    - Storage Path   : logs/report_eval_night_20260116_223208.txt
+
+ 2. ATTRIBUTE DISTRIBUTION SUMMARY
+    - Final Count (ROI)    : 7
+    - Gender Distribution  : Male(7) / Female(3) / Unk(0)
+    - Mean Conf (Gender)   : 76.31% (Analysis Reliability)
+
+ 3. SYSTEM PERFORMANCE
+    - Effective FPS      : 16.3 (Target 15+ on 4070Ti)
+    - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
+
+ 4. ACCURACY ASSESSMENT
+    - Evaluation Acc     : 28.0% (vs. MOT16 Ground Truth Ref)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL OBJECT LOGS]
+> [ID 01] Best G: 65.9% | C: 50.1% | Res: Male/Gray
+> [ID 02] Best G: 79.3% | C: 66.4% | Res: Male/Gray
+> [ID 03] Best G: 64.7% | C: 81.3% | Res: Female/Black
+> [ID 04] Best G: 83.2% | C: 58.4% | Res: Male/White
+> [ID 09] Best G: 68.3% | C: 53.6% | Res: Female/Gray
+> [ID 10] Best G: 61.5% | C: 68.8% | Res: Male/White
+> [ID 12] Best G: 93.2% | C: 49.4% | Res: Male/Gray
+> [ID 13] Best G: 91.1% | C: 50.8% | Res: Male/Red
+> [ID 14] Best G: 81.8% | C: 48.0% | Res: Male/Black
+> [ID 15] Best G: 73.9% | C: 58.7% | Res: Female/Gray
