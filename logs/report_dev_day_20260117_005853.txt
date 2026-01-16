@@ -1,0 +1,50 @@
+
+===================================================================================================================
+[FINAL SYSTEM EVALUATION REPORT]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : dev_day.mp4
+    - Processed Date : 2026-01-17 00:58:53
+    - Storage Path   : logs/report_dev_day_20260117_005853.txt
+    - Hardware       : NVIDIA GeForce RTX 4070 Ti
+
+ 2. ATTRIBUTE DISTRIBUTION SUMMARY
+    - Final Count (ROI)    : 27
+    - Gender Distribution  : Male(20) / Female(5) / Unk(0)
+    - Mean Conf (Gender)   : 28.66% (Analysis Reliability)
+
+ 3. SYSTEM PERFORMANCE
+    - Effective FPS      : 15.6 (Running on NVIDIA GeForce RTX 4070 Ti)
+    - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
+
+ 4. ACCURACY ASSESSMENT
+    - Evaluation Acc     : 92.6% (vs. MOT16 Ground Truth Ref: 25)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL OBJECT LOGS]
+> [ID 01] Final: Male(27.0%) | Green
+> [ID 02] Final: Male(19.7%) | Green
+> [ID 03] Final: Male(16.6%) | Green
+> [ID 04] Final: Male(54.5%) | Gray
+> [ID 05] Final: Male(26.3%) | Green
+> [ID 06] Final: Male(17.9%) | Blue
+> [ID 07] Final: Male(16.4%) | White
+> [ID 08] Final: Unk(9.5%) | Green
+> [ID 09] Final: Female(16.6%) | White
+> [ID 10] Final: Male(38.5%) | Black
+> [ID 11] Final: Male(38.0%) | White
+> [ID 12] Final: Male(35.0%) | Gray
+> [ID 15] Final: Male(36.2%) | White
+> [ID 16] Final: Female(58.1%) | White
+> [ID 17] Final: Male(23.7%) | White
+> [ID 18] Final: Male(24.7%) | White
+> [ID 21] Final: Male(17.8%) | White
+> [ID 22] Final: Male(28.6%) | White
+> [ID 23] Final: Male(38.4%) | Gray
+> [ID 24] Final: Male(38.1%) | Green
+> [ID 25] Final: Male(21.7%) | White
+> [ID 26] Final: Female(29.5%) | Black
+> [ID 30] Final: Female(45.7%) | White
+> [ID 31] Final: Male(17.3%) | White
+> [ID 32] Final: Male(32.4%) | Red
+> [ID 33] Final: Female(17.0%) | Green

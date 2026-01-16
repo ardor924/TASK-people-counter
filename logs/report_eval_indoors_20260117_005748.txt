@@ -4,8 +4,9 @@
 ===================================================================================================================
  1. SESSION INFO
     - Target Video   : eval_indoors.mp4
-    - Processed Date : 2026-01-16 09:35:31
-    - Storage Path   : logs/report_eval_indoors_20260116_093531.txt
+    - Processed Date : 2026-01-17 00:57:48
+    - Storage Path   : logs/report_eval_indoors_20260117_005748.txt
+    - Hardware       : NVIDIA GeForce RTX 4070 Ti
 
  2. ATTRIBUTE DISTRIBUTION SUMMARY
     - Final Count (ROI)    : 30
@@ -13,11 +14,11 @@
     - Mean Conf (Gender)   : 85.06% (Analysis Reliability)
 
  3. SYSTEM PERFORMANCE
-    - Effective FPS      : 15.5 (Target 15+ on 4070Ti)
+    - Effective FPS      : 15.6 (Running on NVIDIA GeForce RTX 4070 Ti)
     - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
 
  4. ACCURACY ASSESSMENT
-    - Evaluation Acc     : 83.3% (vs. MOT16 Ground Truth Ref)
+    - Evaluation Acc     : 83.3% (vs. MOT16 Ground Truth Ref: 25)
 ===================================================================================================================
 
 [APPENDIX: INDIVIDUAL OBJECT LOGS]

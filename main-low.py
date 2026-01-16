@@ -4,14 +4,20 @@ import numpy as np
 import os
 import sys
 from collections import defaultdict, Counter
-from datetime import datetime
+import torch
+
+# src/ 폴더를 시스템 경로에 추가 (모듈 참조 안전성 확보)
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+# 모듈 임포트 (main.py와 동일한 유틸리티 사용)
+from src.utils import create_directories, save_best_samples, generate_report, show_summary_window
 
 # =========================
 # #1 Global Policy (Low-Spec / Edge Mode)
 # =========================
 # VIDEO_PATH = "data/dev_day.mp4"
-# VIDEO_PATH = "data/eval_night.mp4"
-VIDEO_PATH = "data/eval_indoors.mp4"
+VIDEO_PATH = "data/eval_night.mp4"
+# VIDEO_PATH = "data/eval_indoors.mp4"
 
 DETECTOR_PATH = "models/yolov8n.pt"
 CLASSIFIER_PATH = "models/yolov8n-cls.pt"
@@ -126,12 +132,11 @@ class HybridAttributeEngine:
 # #3 Main Pipeline
 # =========================
 def main():
-    import torch
     import supervision as sv
     from ultralytics import YOLO
 
-    for folder in ["logs", "best_samples"]:
-        if not os.path.exists(folder): os.makedirs(folder)
+    # 1. 초기화 (utils 함수 사용)
+    create_directories()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Running in Hybrid Voting Mode (Device: {device})")
@@ -139,6 +144,11 @@ def main():
     detector = YOLO(DETECTOR_PATH).to(device)
     hybrid_engine = HybridAttributeEngine(device=device)
     
+    # 영상 경로 체크
+    if not os.path.exists(VIDEO_PATH):
+        print(f"[ERROR] Video file not found: {VIDEO_PATH}")
+        return
+
     cap = cv2.VideoCapture(VIDEO_PATH)
     src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -152,11 +162,15 @@ def main():
     zone_dwell, counted_ids, total_count = defaultdict(int), set(), 0
     
     # [데이터 저장소]
-    # voting_box: {tid: {'g_scores': {'Male': 0, 'Female': 0}, 'c_list': [], 'best_img': None, 'max_conf': 0}}
     voting_box = defaultdict(lambda: {'g_scores': defaultdict(float), 'c_list': [], 'best_img': None, 'max_conf': 0})
-    id_attributes = {} # 최종 확정된 결과
-    inference_log = []
     
+    # [utils 호환용 데이터]
+    id_attributes = {} 
+    best_crops_store = {}   # save_best_samples 호환용
+    inference_log = []      # generate_report 호환용
+    conf_scores = []        # 평균 신뢰도 계산용
+    
+    # [Fix] 키 이름 불일치 수정 (Unknown -> Unk)
     gender_stats = {"Male": 0, "Female": 0, "Unk": 0}
     
     frame_idx, start_time = 0, time.time()
@@ -231,15 +245,12 @@ def main():
                         if crop.size > 0:
                             res = hybrid_engine.analyze(crop)
                             
-                            # (1) 성별: 확신도 가중치 누적 (Weighted Voting)
                             if res['g'] in ['Male', 'Female']:
                                 voting_box[tid]['g_scores'][res['g']] += res['g_cf']
                             
-                            # (2) 색상: 리스트에 추가 (Majority Voting)
                             if res['c'] != "Unk":
                                 voting_box[tid]['c_list'].append(res['c'])
                             
-                            # (3) Best Image: 합산 점수가 높은 순간의 이미지를 임시 저장
                             curr_score = res['g_cf'] + res['c_cf']
                             if curr_score > voting_box[tid]['max_conf']:
                                 voting_box[tid]['max_conf'] = curr_score
@@ -249,36 +260,40 @@ def main():
                     if track_hits[raw_id] == 31:
                         vdata = voting_box[tid]
                         
-                        # 성별 결정: 누적 점수가 높은 쪽
                         m_score = vdata['g_scores']['Male']
                         f_score = vdata['g_scores']['Female']
                         
                         final_g = "Unk"
-                        # 최소 1번이라도 유의미한 탐지가 있었고, 합산 점수가 일정 이상이어야 함
                         if (m_score + f_score) > 50: 
                             final_g = "Male" if m_score >= f_score else "Female"
                         
-                        # 색상 결정: 최빈값 (Most Common)
                         final_c = "Unk"
                         if vdata['c_list']:
                             final_c = Counter(vdata['c_list']).most_common(1)[0][0]
                         
-                        # 결과 확정 및 통계 반영
                         id_attributes[tid] = {"g": final_g, "c": final_c}
-                        gender_stats[final_g] += 1
                         
-                        # 로그 기록
-                        log_conf = max(m_score, f_score) / 3 # 평균 근사치
-                        inference_log.append(f"[ID {tid:02d}] Final: {final_g}({log_conf:.0f}) | {final_c}")
+                        # [Fix] gender_stats 업데이트 시 final_g 키 사용 (Unk 포함)
+                        if final_g in gender_stats:
+                            gender_stats[final_g] += 1
+                        else:
+                            gender_stats['Unk'] += 1
                         
-                        # Best Sample 최종 저장 (voting_box에 저장된 최고 프레임 사용)
+                        # [호환성] 평균 점수 계산 (3번 투표의 평균 근사치)
+                        log_conf = max(m_score, f_score) / 3
+                        conf_scores.append(log_conf)
+                        
+                        inference_log.append(f"[ID {tid:02d}] Final: {final_g}({log_conf:.1f}%) | {final_c}")
+                        
+                        # [호환성] utils.save_best_samples용 데이터 생성
                         if vdata['best_img'] is not None:
-                            img_filename = f"LOW_ID{tid:02d}_{final_g}_{final_c}.jpg"
-                            # 임시로 메모리에 들고 있다가 나중에 저장하거나 바로 저장 가능
-                            # 여기서는 리스트에 넣어서 마지막에 일괄 저장하도록 구조 유지
-                            voting_box[tid]['final_label'] = f"{final_g}_{final_c}"
+                            best_crops_store[tid] = {
+                                'conf': log_conf,
+                                'img': vdata['best_img'],
+                                'label': f"{final_g}_{final_c}"
+                            }
 
-                # UI 표시 (분석 중일 땐 Analyzing 표시)
+                # UI 표시
                 attr = id_attributes.get(tid, {"g": "Scaning..", "c": "."})
                 label = f"ID:{tid} | {attr['g'][0]}/{attr['c']}"
 
@@ -288,7 +303,6 @@ def main():
                         counted_ids.add(tid)
                         total_count += 1
 
-                # 색상: 분석 완료(Green), 진행 중(White)
                 color_box = (0, 255, 0) if tid in id_attributes else (255, 255, 255)
                 cv2.rectangle(display, (x1, y1), (x2, y2), color_box, 2)
                 cv2.putText(display, label, (x1, y1 - 10), 1, 0.7, color_box, 1)
@@ -306,76 +320,23 @@ def main():
         cv2.imshow("Hybrid Low-Spec AI", display)
         if cv2.waitKey(wait_time) & 0xFF == ord("q"): break
 
-    elapsed = time.time() - start_time
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    video_base_name = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
-    report_filename = f"logs/report_LOW_{video_base_name}_{timestamp}.txt"
-
-    # [1] Best Samples 저장 (Top 5)
-    print("\n[INFO] Saving Top 5 Best Samples...")
-    # 점수 기준 정렬 (voting_box의 max_conf 활용)
-    sorted_votes = sorted(voting_box.items(), key=lambda x: x[1]['max_conf'], reverse=True)[:5]
-    
-    for rank, (tid, data) in enumerate(sorted_votes, 1):
-        if data['best_img'] is not None:
-            try:
-                label = data.get('final_label', 'Analyzing')
-                img_filename = f"LOW_{video_base_name}_{timestamp}_Top{rank}_ID{tid:02d}_{label}.jpg"
-                cv2.imwrite(os.path.join("best_samples", img_filename), data['best_img'])
-                print(f"   > Saved: {img_filename}")
-            except Exception as e:
-                print(f"   > Error saving ID {tid}: {e}")
-
-    # [2] 리포트 생성
-    report_content = f"""
-===================================================================================================================
-[FINAL HYBRID SYSTEM REPORT (VOTING ENABLED)]
-===================================================================================================================
- 1. SESSION INFO
-    - Target Video   : {os.path.basename(VIDEO_PATH)}
-    - Processed Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-    - Storage Path   : {report_filename}
-
- 2. PERFORMANCE SUMMARY
-    - Total Tracked  : {next_display_id-1}
-    - Final Count    : {total_count}
-    - Gender Stats   : Male({gender_stats['Male']}) / Female({gender_stats['Female']}) / Unk({gender_stats['Unk']})
-    - Effective FPS  : {frame_idx/elapsed:.1f}
-    
- 3. CONFIGURATION
-    - Mode           : Low-Spec / Hybrid Voting
-    - Logic          : 3-Frame Temporal Voting (Majority Rule)
-===================================================================================================================
-"""
-    print(report_content)
-    try:
-        with open(report_filename, "w", encoding="utf-8") as f:
-            f.write(report_content)
-            f.write("\n[APPENDIX: INDIVIDUAL LOGS]\n")
-            for log in sorted(inference_log): f.write(f"> {log}\n")
-    except: pass
-
-    # [3] 요약 UI
-    summary_bg = np.zeros((450, 650, 3), dtype=np.uint8)
-    summary_bg[:] = (35, 35, 35)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    
-    cv2.putText(summary_bg, "HYBRID VOTING SUMMARY", (50, 50), font, 1, (255, 255, 0), 2)
-    cv2.line(summary_bg, (50, 65), (600, 65), (150, 150, 150), 1)
-    
-    cv2.putText(summary_bg, f"Video: {os.path.basename(VIDEO_PATH)}", (50, 110), font, 0.7, (255, 255, 255), 1)
-    cv2.putText(summary_bg, f"Total Count: {total_count}", (50, 160), font, 0.9, (0, 255, 0), 2)
-    cv2.putText(summary_bg, f"Male: {gender_stats['Male']} / Female: {gender_stats['Female']}", (50, 210), font, 0.7, (255, 255, 255), 1)
-    cv2.putText(summary_bg, f"Avg FPS: {frame_idx/elapsed:.1f}", (50, 260), font, 0.7, (255, 255, 255), 1)
-    cv2.putText(summary_bg, f"Logic: Temporal Voting (3-Step)", (50, 310), font, 0.6, (200, 200, 0), 1)
-    
-    cv2.putText(summary_bg, "Press any key to exit.", (50, 410), font, 0.7, (0, 0, 255), 2)
-    
-    cv2.imshow("Final Summary Report", summary_bg)
-    cv2.waitKey(0)
+    # [종료 로직] src/utils.py 함수 활용 (일관성 확보)
     cap.release()
     cv2.destroyAllWindows()
+
+    elapsed = time.time() - start_time
+    video_base_name = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
+    final_fps = frame_idx / elapsed
+    avg_conf = np.mean(conf_scores) if conf_scores else 0.0
+
+    # 1. Best Samples 저장
+    save_best_samples(video_base_name, best_crops_store)
+    
+    # 2. 리포트 파일 생성
+    generate_report(video_base_name, total_count, gender_stats, avg_conf, final_fps, inference_log)
+    
+    # 3. 요약 윈도우 표시
+    show_summary_window(video_base_name, total_count, gender_stats, avg_conf, final_fps)
 
 if __name__ == "__main__":
     main()

@@ -271,4 +271,4 @@ venv/
 .DS_Store
 
 # Backup & Garage
-backup/
+/backup/
