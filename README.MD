@@ -12,13 +12,13 @@
 # 목차 
 1. [Project Motivation](#-1-Project-Motivation)
 2. [시스템 아키텍쳐](#2-시스템-아키텍쳐)
-3. [데이터셋 정의](#3.-데이터셋 정의(Dataset Description))
-4. [속성 정의](#4)
-5. [Project Structure](#5)
-6. [설치 및 실행](#6)
-7. [Accuracy & Reliability](#7)
-8. [차별화 포인트](#8)
-9. [Technical & Future Work](# 9)
+3. [데이터셋 정의](#3-데이터셋-정의(Dataset-Description))
+4. [속성 정의](#4-속성-정의)
+5. [Project Structure](#5-Project-Structure)
+6. [설치 및 실행](#6-설치-및-실행)
+7. [Accuracy & Reliability](#7-Accuracy-&-Reliability)
+8. [차별화 포인트](#8-차별화-포인트)
+9. [Technical & Future Work](#9-Technical-&-Future-Work)
 
 # 1. Project Motivation
 
