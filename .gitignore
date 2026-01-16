@@ -260,8 +260,8 @@ models/*.engine
 runs/
 outputs/
 results/
-# logs/ (필요한 샘플 1~2개만 남기고 삭제 후 푸시)
-# best_samples/ (잘 나온 샘플 3~5개만 남기고 삭제 후 푸시)
+logs/ 
+best_samples/ 
 
 # Environment
 venv/
