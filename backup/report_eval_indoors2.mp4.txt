@@ -1,0 +1,26 @@
+
+===================================================================================================================
+[FINAL SYSTEM REPORT] eval_indoors2.mp4
+===================================================================================================================
+ 1. GENDER DISTRIBUTION SUMMARY
+    - Total Tracked: 18 | Male: 6 / Female: 6 / Unk: 0
+-------------------------------------------------------------------------------------------------------------------
+ 2. PERFORMANCE & QUALITY
+    - Effective FPS: 15.7 (4070Ti Optimized)
+    - Counting Accuracy: 24.0%
+    - Logic Strategy: Best-Frame Selection + Aspect Ratio Filtering
+===================================================================================================================
+
+3. DETAILED LOGS
+> [ID 01] Best G: 97.3% | C: 59.6% | Res: Female/Blue
+> [ID 02] Best G: 89.6% | C: 45.5% | Res: Male/Blue
+> [ID 03] Best G: 95.5% | C: 59.1% | Res: Male/Blue
+> [ID 04] Best G: 98.9% | C: 79.9% | Res: Female/Red
+> [ID 06] Best G: 88.4% | C: 29.2% | Res: Male/Black
+> [ID 07] Best G: 98.4% | C: 41.6% | Res: Female/Blue
+> [ID 08] Best G: 97.0% | C: 37.6% | Res: Female/Red
+> [ID 09] Best G: 86.1% | C: 38.5% | Res: Female/Blue
+> [ID 11] Best G: 90.0% | C: 42.2% | Res: Male/Red
+> [ID 12] Best G: 66.6% | C: 45.8% | Res: Male/Blue
+> [ID 15] Best G: 96.6% | C: 29.6% | Res: Male/Gray
+> [ID 17] Best G: 97.8% | C: 58.2% | Res: Female/Red

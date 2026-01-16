@@ -1,0 +1,52 @@
+
+===================================================================================================================
+[FINAL SYSTEM REPORT] eval_night.mp4
+===================================================================================================================
+ 1. GENDER DISTRIBUTION SUMMARY
+    - Total Tracked: 46 | Male: 35 / Female: 3 / Unk: 0
+-------------------------------------------------------------------------------------------------------------------
+ 2. PERFORMANCE & QUALITY
+    - Effective FPS: 15.5 (4070Ti Optimized)
+    - Counting Accuracy: 96.0%
+    - Logic Strategy: Best-Frame Selection + Aspect Ratio Filtering
+===================================================================================================================
+
+3. DETAILED LOGS
+> [ID 01] Best G: 71.9% | C: 42.0% | Res: Male/Gray
+> [ID 02] Best G: 74.0% | C: 40.5% | Res: Male/White
+> [ID 03] Best G: 69.8% | C: 47.2% | Res: Male/Black
+> [ID 04] Best G: 91.0% | C: 76.4% | Res: Male/White
+> [ID 05] Best G: 66.4% | C: 24.5% | Res: Male/Black
+> [ID 06] Best G: 89.4% | C: 70.0% | Res: Male/Black
+> [ID 07] Best G: 64.2% | C: 54.0% | Res: Male/White
+> [ID 10] Best G: 68.7% | C: 44.6% | Res: Male/White
+> [ID 11] Best G: 92.5% | C: 91.1% | Res: Male/White
+> [ID 12] Best G: 93.9% | C: 64.0% | Res: Male/White
+> [ID 13] Best G: 69.2% | C: 40.0% | Res: Male/Black
+> [ID 14] Best G: 95.4% | C: 72.6% | Res: Male/Black
+> [ID 15] Best G: 59.4% | C: 38.9% | Res: Male/Black
+> [ID 16] Best G: 89.6% | C: 85.4% | Res: Male/White
+> [ID 17] Best G: 90.2% | C: 63.7% | Res: Male/White
+> [ID 18] Best G: 57.8% | C: 46.2% | Res: Male/Black
+> [ID 19] Best G: 83.8% | C: 80.1% | Res: Male/Black
+> [ID 20] Best G: 56.9% | C: 59.0% | Res: Male/Black
+> [ID 21] Best G: 73.7% | C: 60.8% | Res: Male/Black
+> [ID 22] Best G: 65.7% | C: 52.5% | Res: Female/Black
+> [ID 23] Best G: 94.7% | C: 44.8% | Res: Female/Black
+> [ID 25] Best G: 89.3% | C: 46.4% | Res: Male/Black
+> [ID 26] Best G: 66.4% | C: 40.6% | Res: Male/Gray
+> [ID 27] Best G: 80.9% | C: 50.0% | Res: Male/White
+> [ID 28] Best G: 89.9% | C: 46.0% | Res: Male/White
+> [ID 29] Best G: 74.4% | C: 33.2% | Res: Male/White
+> [ID 31] Best G: 98.6% | C: 85.1% | Res: Male/White
+> [ID 33] Best G: 67.9% | C: 71.2% | Res: Male/Red
+> [ID 34] Best G: 70.5% | C: 44.3% | Res: Male/Black
+> [ID 35] Best G: 78.5% | C: 75.7% | Res: Male/Black
+> [ID 36] Best G: 90.1% | C: 70.6% | Res: Male/White
+> [ID 37] Best G: 82.2% | C: 90.8% | Res: Female/White
+> [ID 40] Best G: 60.8% | C: 39.1% | Res: Male/Yellow
+> [ID 41] Best G: 77.1% | C: 68.1% | Res: Male/Black
+> [ID 42] Best G: 92.8% | C: 96.1% | Res: Male/White
+> [ID 43] Best G: 60.2% | C: 56.8% | Res: Male/White
+> [ID 44] Best G: 61.8% | C: 26.0% | Res: Male/White
+> [ID 45] Best G: 61.0% | C: 35.5% | Res: Male/Black
