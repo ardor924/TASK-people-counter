@@ -243,16 +243,25 @@ __pycache__/
 *.mp4
 *.avi
 
+#weight
+models/*.pt
+models/*.onnx
+models/*.engine
+*.pt
+
 # Model weights
 *.pt
 *.onnx
 *.engine
 
+
+
 # Outputs
 runs/
 outputs/
 results/
-logs/
+# logs/ (필요한 샘플 1~2개만 남기고 삭제 후 푸시)
+# best_samples/ (잘 나온 샘플 3~5개만 남기고 삭제 후 푸시)
 
 # Environment
 venv/
@@ -260,3 +269,6 @@ venv/
 
 # OS
 .DS_Store
+
+# Backup & Garage
+backup/

@@ -3,6 +3,7 @@ ultralytics>=8.1.0       # YOLOv8
 opencv-python>=4.8.0     # Image Processing
 numpy>=1.23.0            # Math
 supervision>=0.18.0      # [추가] Tracking & Counting Solution (SOTA)
+scikit-learn>=1.3.0  # [추가] K-Means 색상 분석 고도화용
 
 # Data Handling
 pandas>=2.0.0            # [추가] CSV Export

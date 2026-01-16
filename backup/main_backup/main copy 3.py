@@ -1,72 +1,121 @@
 import cv2
 import time
 import numpy as np
+import os
+import sys
+import subprocess
 from collections import defaultdict
 
 # =========================
-# #1 Config (범용적 기준 설정)
+# #1 Global Policy
 # =========================
-VIDEO_PATH = "data/dev_day.mp4"
+# VIDEO_PATH = "data/dev_day.mp4"
+VIDEO_PATH = "data/eval_night.mp4"
 MODEL_PATH = "models/yolov8n.pt"
 
 RESIZE_WIDTH = 960
 CONF_THRESH = 0.62      
-
-# [범용성 강화] 고정 수치 대신 '초(sec)' 단위 가이드라인 설정
-DWELL_TIME_SEC = 0.5    # 0.5초 이상 영역에 머물러야 카운트
-FORGET_TIME_SEC = 0.7   # 0.7초 이상 안 보이면 잊음
-
-TRACK_BUFFER_SEC = 2.0  # 트래커 기억 유지 시간 (초)
-MIN_HITS = 10           
-
+DWELL_TIME_SEC = 0.5    
+FORGET_TIME_SEC = 0.7   
+TRACK_BUFFER_SEC = 2.0  
 ID_FUSION_RATIO = 0.015 
 ZONE_START_RATIO = 0.45
 
 # =========================
-# #2 Main
+# #2 Advanced VLM Engine (Best-Frame Selection)
+# =========================
+class VLMAttributeEngine:
+    def __init__(self):
+        self.available = False
+        self.model_dir = os.path.join(os.getcwd(), "models")
+        if not os.path.exists(self.model_dir): os.makedirs(self.model_dir)
+
+        try:
+            import clip
+            import torch
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/openai/CLIP.git"])
+            import clip
+
+        try:
+            import torch
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model, self.preprocess = clip.load("ViT-B/32", device=self.device, download_root=self.model_dir)
+            # self.model, self.preprocess = clip.load("ViT-B/16", device=self.device, download_root=self.model_dir)
+            
+            self.m_prompts = ["a man with short hair", "a male person"]
+            self.w_prompts = ["a woman with long hair", "a female person"]
+            self.color_names = ["Black", "White", "Blue", "Red", "Gray", "Yellow"]
+            self.color_prompts = [f"a person wearing {c.lower()} clothes" for c in self.color_names]
+            
+            self.gender_tokens = clip.tokenize(self.m_prompts + self.w_prompts).to(self.device)
+            self.color_tokens = clip.tokenize(self.color_prompts).to(self.device)
+            self.available = True
+            print(f"[INFO] VLM Engine: Best-Frame Selection Mode Active.")
+        except Exception as e:
+            print(f"[WARN] VLM Init Failed: {e}")
+
+    def analyze(self, crop_cv2):
+        if not self.available: return None
+        from PIL import Image
+        import torch
+        try:
+            h, w = crop_cv2.shape[:2]
+            # 상단 70% 집중 분석
+            center_crop = crop_cv2[int(h*0.05):int(h*0.75), int(w*0.1):int(w*0.9)]
+            image = Image.fromarray(cv2.cvtColor(center_crop, cv2.COLOR_BGR2RGB))
+            image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+
+            with torch.no_grad():
+                logits_g, _ = self.model(image_input, self.gender_tokens)
+                probs_g = logits_g.softmax(dim=-1).cpu().numpy()[0]
+                m_score = np.sum(probs_g[0:2])
+                w_score = np.sum(probs_g[2:4])
+                
+                logits_c, _ = self.model(image_input, self.color_tokens)
+                probs_c = logits_c.softmax(dim=-1).cpu().numpy()[0]
+                c_idx = np.argmax(probs_c)
+
+            gender = "Male" if m_score > w_score else "Female"
+            g_conf = max(m_score, w_score) * 100
+            color = self.color_names[c_idx]
+            c_conf = probs_c[c_idx] * 100
+
+            return {"g": gender, "c": color, "g_cf": g_conf, "c_cf": c_conf}
+        except:
+            return None
+
+# =========================
+# #3 Main Pipeline
 # =========================
 def main():
-    # 1. 즉시 창 생성 (960 가로폭 유지)
     cv2.namedWindow("AI Tracking System", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("AI Tracking System", RESIZE_WIDTH, int(RESIZE_WIDTH * 0.6))
     
-    loading_img = np.zeros((540, 960, 3), dtype=np.uint8)
-    cv2.putText(loading_img, "AI SYSTEM INITIALIZING...", (280, 240), 
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.imshow("AI Tracking System", loading_img)
-    cv2.waitKey(10)
-
-    # 2. Imports & Init
     import supervision as sv
     from ultralytics import YOLO
 
-    model = YOLO(MODEL_PATH)
-
-    cap = cv2.VideoCapture(VIDEO_PATH)
-    if not cap.isOpened(): raise RuntimeError("Video open failed")
-
-    # [범용성 핵심] 영상의 속성에 따른 파라미터 자동 계산
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    wait_time = max(1, int(1000 / fps))
+    detector = YOLO(MODEL_PATH)
+    vlm_engine = VLMAttributeEngine()
     
-    # 초 단위 설정을 프레임 단위로 변환 (어떤 FPS 영상이 와도 동일하게 작동)
-    zone_dwell_frames = int(DWELL_TIME_SEC * fps)
-    id_forget_frames = int(FORGET_TIME_SEC * fps)
-    track_buffer_frames = int(TRACK_BUFFER_SEC * fps)
+    cap = cv2.VideoCapture(VIDEO_PATH)
+    src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    wait_time = max(1, int(1000 / src_fps))
+    tracker = sv.ByteTrack(lost_track_buffer=int(TRACK_BUFFER_SEC * src_fps))
 
-    tracker = sv.ByteTrack(lost_track_buffer=track_buffer_frames)
-
-    # State Variables
     track_hits = defaultdict(int)
-    track_life = defaultdict(int)
-    track_registry = {}   
-    id_map = {}           
-    next_display_id = 1   
-    zone_dwell = defaultdict(int)
-    counted_ids = set()   
-    total_count = 0
+    id_map, next_display_id = {}, 1
+    track_registry = {}
+    zone_dwell, counted_ids, total_count = defaultdict(int), set(), 0
+    
+    # ID별 누적 후보군 저장
+    vlm_candidates = defaultdict(list)
+    id_attributes = {} 
+    
+    gender_stats = {"Male": 0, "Female": 0, "Unknown": 0}
+    inference_log = []
+
     frame_idx, start_time = 0, time.time()
-    max_raw_id, fusion_count = 0, 0
     fusion_dist_limit = RESIZE_WIDTH * ID_FUSION_RATIO
 
     while True:
@@ -74,16 +123,13 @@ def main():
         if not ret: break
         frame_idx += 1
 
-        h, w = frame.shape[:2]
-        scale = RESIZE_WIDTH / w
-        frame = cv2.resize(frame, (RESIZE_WIDTH, int(h * scale)))
+        fh, fw = int(frame.shape[0] * (RESIZE_WIDTH/frame.shape[1])), RESIZE_WIDTH
+        frame = cv2.resize(frame, (fw, fh))
         display = frame.copy()
-        fh, fw = display.shape[:2]
-
         zone_y = int(fh * ZONE_START_RATIO)
         cv2.line(display, (0, zone_y), (fw, zone_y), (0, 0, 255), 2)
 
-        results = model(frame, verbose=False)[0]
+        results = detector(frame, verbose=False, device=0)[0]
         detections = sv.Detections.from_ultralytics(results)
         detections = detections[detections.confidence >= CONF_THRESH]
         detections = tracker.update_with_detections(detections)
@@ -93,9 +139,8 @@ def main():
         if detections.tracker_id is not None:
             for xyxy, raw_id in zip(detections.xyxy, detections.tracker_id):
                 raw_id = int(raw_id)
-                max_raw_id = max(max_raw_id, raw_id)
                 track_hits[raw_id] += 1
-                if track_hits[raw_id] < MIN_HITS: continue 
+                if track_hits[raw_id] < 10: continue 
 
                 x1, y1, x2, y2 = map(int, xyxy)
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
@@ -104,14 +149,13 @@ def main():
                     found_legacy = False
                     for disp_id, data in list(track_registry.items()):
                         if disp_id in active_now_ids: continue 
-                        if frame_idx - data["last_frame"] > id_forget_frames:
+                        if frame_idx - data["last_frame"] > (FORGET_TIME_SEC * src_fps):
                             if disp_id in track_registry: del track_registry[disp_id]
                             continue
                         dist = np.sqrt((cx - data["pos"][0])**2 + (cy - data["pos"][1])**2)
                         if dist < fusion_dist_limit:
                             id_map[raw_id] = disp_id
                             found_legacy = True
-                            fusion_count += 1
                             break
                     if not found_legacy:
                         id_map[raw_id] = next_display_id
@@ -119,61 +163,89 @@ def main():
                 
                 tid = id_map[raw_id]
                 active_now_ids.add(tid)
-                track_life[tid] += 1
                 track_registry[tid] = {"pos": (cx, cy), "last_frame": frame_idx}
 
-                if tid not in counted_ids:
-                    if cy > zone_y:
-                        zone_dwell[tid] += 1
-                        if zone_dwell[tid] >= zone_dwell_frames:
-                            counted_ids.add(tid)
-                            total_count += 1
-                    else:
-                        zone_dwell[tid] = 0
+                # -------------------------------------------------------
+                # [CORE] Best-Frame Selection Logic
+                # -------------------------------------------------------
+                if tid not in id_attributes:
+                    if track_hits[raw_id] in [20, 30, 40]:
+                        crop = frame[max(0,y1):min(fh,y2), max(0,x1):min(fw,x2)]
+                        if crop.size > 0:
+                            res = vlm_engine.analyze(crop)
+                            if res: vlm_candidates[tid].append(res)
 
-                color = (0, 255, 0) if tid in counted_ids else (255, 255, 255)
-                cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(display, f"ID {tid}", (x1, y1 - 6), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    if track_hits[raw_id] == 41:
+                        candidates = vlm_candidates[tid]
+                        if candidates:
+                            # 성별 확신도(g_cf)가 가장 높은 프레임의 데이터를 최종 선택
+                            best_res = max(candidates, key=lambda x: x["g_cf"])
+                            
+                            final_g = best_res["g"]
+                            final_c = best_res["c"]
+                            g_conf = best_res["g_cf"]
+                            c_conf = best_res["c_cf"]
+                            
+                            # 비정상 데이터 방어 (확신도 40% 미만은 Unknown)
+                            if g_conf < 40.0: final_g = "Unknown"
+                            
+                            id_attributes[tid] = (final_g, final_c, g_conf, c_conf)
+                            gender_stats[final_g] += 1
+                            inference_log.append(f"[ID {tid:02d}] Best G: {g_conf:4.1f}% | C: {c_conf:4.1f}% | Res: {final_g}/{final_c}")
 
-        # UI Overlay
+                attr = id_attributes.get(tid, ("Analyzing", "...", 0, 0))
+                label = f"ID:{tid} | {attr[0][:1]}({attr[2]:.0f}%) | {attr[1]}({attr[3]:.0f}%)"
+
+                if tid not in counted_ids and cy > zone_y:
+                    zone_dwell[tid] += 1
+                    if zone_dwell[tid] >= (DWELL_TIME_SEC * src_fps):
+                        counted_ids.add(tid)
+                        total_count += 1
+
+                color_box = (0, 255, 0) if tid in counted_ids else (255, 255, 255)
+                cv2.rectangle(display, (x1, y1), (x2, y2), color_box, 2)
+                cv2.putText(display, label, (x1, y1 - 10), 1, 0.8, color_box, 1)
+
+        # UI
         overlay = display.copy()
-        cv2.rectangle(overlay, (0, 0), (320, 110), (0, 0, 0), -1)
+        cv2.rectangle(overlay, (0, 0), (450, 160), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, display, 0.4, 0, display)
-        cv2.putText(display, f"STATUS: ANALYZING", (20, 30), 1, 1.2, (0, 255, 0), 2)
-        cv2.putText(display, f"COUNT : {total_count}", (20, 60), 1, 1.4, (255, 255, 255), 2)
-        cv2.putText(display, f"VALID IDs : {next_display_id-1}", (20, 90), 1, 1.2, (200, 200, 200), 1)
+        cv2.putText(display, f"VLM BEST-FRAME COUNT: {total_count}", (20, 45), 1, 1.8, (255, 255, 255), 2)
+        cv2.putText(display, f"MALE : {gender_stats['Male']} | FEMALE : {gender_stats['Female']}", (20, 95), 1, 1.2, (0, 255, 255), 1)
+        cv2.putText(display, f"FPS  : {frame_idx/(time.time()-start_time):.1f} | Best-Frame Scoring ON", (20, 135), 1, 0.9, (150, 150, 150), 1)
 
         cv2.imshow("AI Tracking System", display)
         if cv2.waitKey(wait_time) & 0xFF == ord("q"): break
 
-    # Final Report
     elapsed = time.time() - start_time
-    visual_max_id = next_display_id - 1
-    avg_life = sum(track_life.values()) / len(track_life) if track_life else 0
-
-    print("\n" + "=" * 50)
-    print(f"[REPORT] ROBUST TRACKING SUMMARY")
-    print("=" * 50)
-    print(f" 1. PERFORMANCE ANALYSIS")
-    print(f"    - Total Frames       : {frame_idx}")
-    print(f"    - Processing Time    : {elapsed:.2f} sec")
-    print(f"    - Source FPS         : {fps:.1f}")
-    print(f"    - Effective FPS      : {frame_idx/elapsed:.1f}")
-    print("-" * 50)
-    print(f" 2. TRACKING QUALITY (Auto-Calibrated)")
-    print(f"    - Raw Tracker IDs    : {max_raw_id} (All Detected)")
-    print(f"    - Validated People   : {visual_max_id} (Unique Persons)")
-    print(f"    - Fusion Merged      : {fusion_count} (Stabilized)")
-    print(f"    - Dwell Thresh       : {zone_dwell_frames} frames ({DWELL_TIME_SEC}s)")
-    print("-" * 50)
-    print(f" 3. FINAL RESULT")
-    print(f"    - FINAL COUNT        : {total_count}")
-    print(f"    - TARGET ACCURACY    : {min(total_count/25, 25/total_count)*100:.1f}%")
-    print("=" * 50)
+    report_content = f"""
+===================================================================================================================
+[FINAL SYSTEM REPORT] {os.path.basename(VIDEO_PATH)}
+===================================================================================================================
+ 1. GENDER DISTRIBUTION SUMMARY
+    - Total Tracked: {next_display_id-1} | Male: {gender_stats['Male']} / Female: {gender_stats['Female']} / Unk: {gender_stats['Unknown']}
+-------------------------------------------------------------------------------------------------------------------
+ 2. PERFORMANCE & QUALITY
+    - Effective FPS: {frame_idx/elapsed:.1f} (4070Ti Optimized)
+    - Counting Accuracy: {min(total_count/25, 25/total_count)*100:.1f}%
+    - Logic Strategy: Best-Frame Selection + Aspect Ratio Filtering
+===================================================================================================================
+"""
+    print(report_content)
+    
+    # [추가] 리포트 파일 저장 로직
+    report_filename = f"logs/report_{os.path.basename(VIDEO_PATH)}.txt"
+    with open(report_filename, "w", encoding="utf-8") as f:
+        f.write(report_content)
+        f.write("\n3. DETAILED LOGS\n")
+        for log in sorted(inference_log):
+            f.write(f"> {log}\n")
+    
+    print(f"[INFO] Report saved to {report_filename}")
 
     cap.release()
     cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     main()

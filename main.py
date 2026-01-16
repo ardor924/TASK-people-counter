@@ -3,133 +3,104 @@ import time
 import numpy as np
 import os
 import sys
-import subprocess
 from collections import defaultdict
+import torch
 
-# =========================
-# #1 Global Policy
-# =========================
-VIDEO_PATH = "data/dev_day.mp4"
-MODEL_PATH = "models/yolov8n.pt"
+# src/ 폴더를 시스템 경로에 추가 (모듈 참조 안전성 확보)
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-RESIZE_WIDTH = 960
-CONF_THRESH = 0.62      
-DWELL_TIME_SEC = 0.5    
-FORGET_TIME_SEC = 0.7   
-TRACK_BUFFER_SEC = 2.0  
-ID_FUSION_RATIO = 0.015 
-ZONE_START_RATIO = 0.45
+# 모듈 임포트
+from src.config import *
+from src.engine import VLMAttributeEngine
+from src.utils import create_directories, save_best_samples, generate_report, show_summary_window
 
-# =========================
-# #2 Advanced VLM Engine (Best-Frame Selection)
-# =========================
-class VLMAttributeEngine:
-    def __init__(self):
-        self.available = False
-        self.model_dir = os.path.join(os.getcwd(), "models")
-        if not os.path.exists(self.model_dir): os.makedirs(self.model_dir)
-
-        try:
-            import clip
-            import torch
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/openai/CLIP.git"])
-            import clip
-
-        try:
-            import torch
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model, self.preprocess = clip.load("ViT-B/32", device=self.device, download_root=self.model_dir)
-            
-            self.m_prompts = ["a man with short hair", "a male person"]
-            self.w_prompts = ["a woman with long hair", "a female person"]
-            self.color_names = ["Black", "White", "Blue", "Red", "Gray", "Yellow"]
-            self.color_prompts = [f"a person wearing {c.lower()} clothes" for c in self.color_names]
-            
-            self.gender_tokens = clip.tokenize(self.m_prompts + self.w_prompts).to(self.device)
-            self.color_tokens = clip.tokenize(self.color_prompts).to(self.device)
-            self.available = True
-            print(f"[INFO] VLM Engine: Best-Frame Selection Mode Active.")
-        except Exception as e:
-            print(f"[WARN] VLM Init Failed: {e}")
-
-    def analyze(self, crop_cv2):
-        if not self.available: return None
-        from PIL import Image
-        import torch
-        try:
-            h, w = crop_cv2.shape[:2]
-            # 상단 70% 집중 분석
-            center_crop = crop_cv2[int(h*0.05):int(h*0.75), int(w*0.1):int(w*0.9)]
-            image = Image.fromarray(cv2.cvtColor(center_crop, cv2.COLOR_BGR2RGB))
-            image_input = self.preprocess(image).unsqueeze(0).to(self.device)
-
-            with torch.no_grad():
-                logits_g, _ = self.model(image_input, self.gender_tokens)
-                probs_g = logits_g.softmax(dim=-1).cpu().numpy()[0]
-                m_score = np.sum(probs_g[0:2])
-                w_score = np.sum(probs_g[2:4])
-                
-                logits_c, _ = self.model(image_input, self.color_tokens)
-                probs_c = logits_c.softmax(dim=-1).cpu().numpy()[0]
-                c_idx = np.argmax(probs_c)
-
-            gender = "Male" if m_score > w_score else "Female"
-            g_conf = max(m_score, w_score) * 100
-            color = self.color_names[c_idx]
-            c_conf = probs_c[c_idx] * 100
-
-            return {"g": gender, "c": color, "g_cf": g_conf, "c_cf": c_conf}
-        except:
-            return None
-
-# =========================
-# #3 Main Pipeline
-# =========================
 def main():
+    # 1. 초기화 및 필수 폴더 생성
+    create_directories()
+    
+    # 윈도우 설정
     cv2.namedWindow("AI Tracking System", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("AI Tracking System", RESIZE_WIDTH, int(RESIZE_WIDTH * 0.6))
     
+    # 지연 로딩 (YOLO, Supervision)
     import supervision as sv
     from ultralytics import YOLO
 
+    # 2. AI 엔진 및 탐지기 로드
+    print(f"[INFO] Loading YOLOv8 Detector from {MODEL_PATH}...")
     detector = YOLO(MODEL_PATH)
     vlm_engine = VLMAttributeEngine()
     
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    # [수정됨] 영상 경로 설정 (config.py의 변수 사용)
+    # VIDEO_PATH 변수가 아니라 config.py에서 가져온 DEFAULT_VIDEO_PATH를 사용합니다.
+    target_video = DEFAULT_VIDEO_PATH 
+    
+    if not os.path.exists(target_video):
+        print(f"[ERROR] Video file not found: {target_video}")
+        print("Please check 'src/config.py' or 'data/' folder.")
+        return
+
+    cap = cv2.VideoCapture(target_video)
+    if not cap.isOpened():
+        print(f"[ERROR] Could not open video stream.")
+        return
+
     src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     wait_time = max(1, int(1000 / src_fps))
+    
+    # 트래커 설정
     tracker = sv.ByteTrack(lost_track_buffer=int(TRACK_BUFFER_SEC * src_fps))
 
+    # 3. 데이터 및 통계 변수 초기화
     track_hits = defaultdict(int)
     id_map, next_display_id = {}, 1
     track_registry = {}
     zone_dwell, counted_ids, total_count = defaultdict(int), set(), 0
     
-    # ID별 누적 후보군 저장
     vlm_candidates = defaultdict(list)
     id_attributes = {} 
-    
+    best_crops_store = {}
+
     gender_stats = {"Male": 0, "Female": 0, "Unknown": 0}
     inference_log = []
+    conf_scores = [] 
 
     frame_idx, start_time = 0, time.time()
     fusion_dist_limit = RESIZE_WIDTH * ID_FUSION_RATIO
 
+    print(f"[INFO] Analysis Started: {os.path.basename(target_video)}")
+
+    # 4. 메인 분석 루프
     while True:
         ret, frame = cap.read()
         if not ret: break
         frame_idx += 1
 
+        # 프레임 리사이징 및 ROI 표시
         fh, fw = int(frame.shape[0] * (RESIZE_WIDTH/frame.shape[1])), RESIZE_WIDTH
         frame = cv2.resize(frame, (fw, fh))
         display = frame.copy()
         zone_y = int(fh * ZONE_START_RATIO)
         cv2.line(display, (0, zone_y), (fw, zone_y), (0, 0, 255), 2)
 
-        results = detector(frame, verbose=False, device=0)[0]
+        # 객체 탐지 (YOLO)
+        # GPU 사용 가능 여부 체크
+        device = 0 if torch.cuda.is_available() else "cpu"
+        results = detector(frame, verbose=False, device=device)[0]        
+        
         detections = sv.Detections.from_ultralytics(results)
-        detections = detections[detections.confidence >= CONF_THRESH]
+        
+        # 기하학적 필터링 (Aspect Ratio)
+        valid_indices = []
+        for i, xyxy in enumerate(detections.xyxy):
+            x1, y1, x2, y2 = xyxy
+            bw, bh = x2 - x1, y2 - y1
+            aspect_ratio = bh / bw if bw > 0 else 0
+            if aspect_ratio > 1.5 and detections.confidence[i] >= CONF_THRESH:
+                valid_indices.append(i)
+        
+        detections = detections[valid_indices]
         detections = tracker.update_with_detections(detections)
 
         active_now_ids = set()
@@ -143,6 +114,7 @@ def main():
                 x1, y1, x2, y2 = map(int, xyxy)
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
 
+                # ID Fusion 알고리즘
                 if raw_id not in id_map:
                     found_legacy = False
                     for disp_id, data in list(track_registry.items()):
@@ -163,76 +135,78 @@ def main():
                 active_now_ids.add(tid)
                 track_registry[tid] = {"pos": (cx, cy), "last_frame": frame_idx}
 
-                # -------------------------------------------------------
-                # [CORE] Best-Frame Selection Logic
-                # -------------------------------------------------------
+                # VLM 분석 (Sparse Sampling: 20, 30, 40 프레임)
                 if tid not in id_attributes:
                     if track_hits[raw_id] in [20, 30, 40]:
                         crop = frame[max(0,y1):min(fh,y2), max(0,x1):min(fw,x2)]
                         if crop.size > 0:
                             res = vlm_engine.analyze(crop)
-                            if res: vlm_candidates[tid].append(res)
+                            if res: vlm_candidates[tid].append({'res': res, 'img': crop.copy()})
 
+                    # 분석 확정 및 Best Frame 채택
                     if track_hits[raw_id] == 41:
                         candidates = vlm_candidates[tid]
                         if candidates:
-                            # 성별 확신도(g_cf)가 가장 높은 프레임의 데이터를 최종 선택
-                            best_res = max(candidates, key=lambda x: x["g_cf"])
+                            best_entry = max(candidates, key=lambda x: x['res']['g_cf'])
+                            best_res = best_entry['res']
                             
-                            final_g = best_res["g"]
-                            final_c = best_res["c"]
-                            g_conf = best_res["g_cf"]
-                            c_conf = best_res["c_cf"]
-                            
-                            # 비정상 데이터 방어 (확신도 40% 미만은 Unknown)
-                            if g_conf < 40.0: final_g = "Unknown"
+                            final_g, final_c = best_res["g"], best_res["c"]
+                            g_conf, c_conf = best_res["g_cf"], best_res["c_cf"]
+                            if g_conf < 50.0: final_g = "Unknown"
                             
                             id_attributes[tid] = (final_g, final_c, g_conf, c_conf)
                             gender_stats[final_g] += 1
+                            conf_scores.append(g_conf)
+                            
                             inference_log.append(f"[ID {tid:02d}] Best G: {g_conf:4.1f}% | C: {c_conf:4.1f}% | Res: {final_g}/{final_c}")
+                            
+                            best_crops_store[tid] = {
+                                'conf': g_conf,
+                                'img': best_entry['img'],
+                                'label': f"{final_g}_{final_c}"
+                            }
 
                 attr = id_attributes.get(tid, ("Analyzing", "...", 0, 0))
                 label = f"ID:{tid} | {attr[0][:1]}({attr[2]:.0f}%) | {attr[1]}({attr[3]:.0f}%)"
 
+                # 카운팅 로직 (ROI 통과 시)
                 if tid not in counted_ids and cy > zone_y:
                     zone_dwell[tid] += 1
                     if zone_dwell[tid] >= (DWELL_TIME_SEC * src_fps):
                         counted_ids.add(tid)
                         total_count += 1
 
+                # 바운딩 박스 및 텍스트 렌더링
                 color_box = (0, 255, 0) if tid in counted_ids else (255, 255, 255)
                 cv2.rectangle(display, (x1, y1), (x2, y2), color_box, 2)
                 cv2.putText(display, label, (x1, y1 - 10), 1, 0.8, color_box, 1)
 
-        # UI
+        # 상단 UI 패널
         overlay = display.copy()
         cv2.rectangle(overlay, (0, 0), (450, 160), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, display, 0.4, 0, display)
-        cv2.putText(display, f"VLM BEST-FRAME COUNT: {total_count}", (20, 45), 1, 1.8, (255, 255, 255), 2)
+        cv2.putText(display, f"VLM ROBUST SYSTEM: {os.path.basename(target_video)}", (20, 45), 1, 1.5, (255, 255, 255), 2)
         cv2.putText(display, f"MALE : {gender_stats['Male']} | FEMALE : {gender_stats['Female']}", (20, 95), 1, 1.2, (0, 255, 255), 1)
-        cv2.putText(display, f"FPS  : {frame_idx/(time.time()-start_time):.1f} | Best-Frame Scoring ON", (20, 135), 1, 0.9, (150, 150, 150), 1)
+        
+        prog = int(frame_idx/total_frames*100) if total_frames > 0 else 0
+        cv2.putText(display, f"PROGRESS : {prog}% | FPS : {frame_idx/(time.time()-start_time):.1f}", (20, 135), 1, 0.9, (150, 150, 150), 1)
 
         cv2.imshow("AI Tracking System", display)
         if cv2.waitKey(wait_time) & 0xFF == ord("q"): break
 
-    elapsed = time.time() - start_time
-    print("\n" + "=" * 115)
-    print(f"[FINAL REPORT] BEST-FRAME VLM ATTRIBUTE ANALYSIS")
-    print("=" * 115)
-    print(f" 1. GENDER DISTRIBUTION SUMMARY")
-    print(f"    - Total Tracked: {next_display_id-1} | Male: {gender_stats['Male']} / Female: {gender_stats['Female']}")
-    print("-" * 115)
-    print(f" 2. DETAILED ANALYSIS LOGS (Max-Confidence Scores)")
-    for log in sorted(inference_log):
-        print(f"    > {log}")
-    print("-" * 115)
-    print(f" 3. PERFORMANCE DATA")
-    print(f"    - Effective FPS: {frame_idx/elapsed:.1f} (4070Ti GPU Accelerated)")
-    print(f"    - Model Strategy: Best-Frame Selection among 3 Samples")
-    print("=" * 115)
-
+    # 5. 후처리 및 리포트 저장
     cap.release()
     cv2.destroyAllWindows()
+    
+    elapsed = time.time() - start_time
+    avg_conf = np.mean(conf_scores) if conf_scores else 0
+    video_base_name = os.path.splitext(os.path.basename(target_video))[0]
+    final_fps = frame_idx/elapsed
+    
+    # 유틸리티 함수 호출
+    save_best_samples(video_base_name, best_crops_store)
+    generate_report(video_base_name, total_count, gender_stats, avg_conf, final_fps, inference_log)
+    show_summary_window(video_base_name, total_count, gender_stats, avg_conf, final_fps)
 
 if __name__ == "__main__":
     main()

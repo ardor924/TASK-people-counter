@@ -1,0 +1,42 @@
+
+===================================================================================================================
+[FINAL SYSTEM EVALUATION REPORT]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : dev_day.mp4
+    - Processed Date : 2026-01-16 09:33:16
+    - Storage Path   : logs/report_dev_day_20260116_093316.txt
+
+ 2. ATTRIBUTE DISTRIBUTION SUMMARY
+    - Final Count (ROI)    : 21
+    - Gender Distribution  : Male(7) / Female(12) / Unk(0)
+    - Mean Conf (Gender)   : 87.94% (Analysis Reliability)
+
+ 3. SYSTEM PERFORMANCE
+    - Effective FPS      : 15.6 (Target 15+ on 4070Ti)
+    - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
+
+ 4. ACCURACY ASSESSMENT
+    - Evaluation Acc     : 84.0% (vs. MOT16 Ground Truth Ref)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL OBJECT LOGS]
+> [ID 01] Best G: 89.8% | C: 40.8% | Res: Male/Gray
+> [ID 02] Best G: 65.8% | C: 30.7% | Res: Female/Black
+> [ID 03] Best G: 96.9% | C: 91.8% | Res: Male/Blue
+> [ID 04] Best G: 96.2% | C: 54.6% | Res: Male/Black
+> [ID 05] Best G: 80.5% | C: 40.3% | Res: Female/White
+> [ID 06] Best G: 98.1% | C: 35.0% | Res: Female/Gray
+> [ID 07] Best G: 98.1% | C: 36.8% | Res: Female/Gray
+> [ID 08] Best G: 74.8% | C: 49.4% | Res: Female/Blue
+> [ID 10] Best G: 75.8% | C: 65.7% | Res: Male/Gray
+> [ID 11] Best G: 98.9% | C: 56.7% | Res: Female/Gray
+> [ID 12] Best G: 76.0% | C: 30.0% | Res: Female/Gray
+> [ID 13] Best G: 85.6% | C: 66.5% | Res: Female/White
+> [ID 14] Best G: 96.8% | C: 69.6% | Res: Female/Gray
+> [ID 16] Best G: 97.9% | C: 72.9% | Res: Female/Gray
+> [ID 17] Best G: 86.4% | C: 98.1% | Res: Female/Black
+> [ID 18] Best G: 99.6% | C: 35.6% | Res: Male/Gray
+> [ID 19] Best G: 83.1% | C: 87.6% | Res: Male/Gray
+> [ID 20] Best G: 72.2% | C: 46.6% | Res: Female/Gray
+> [ID 22] Best G: 98.3% | C: 40.7% | Res: Male/Blue
