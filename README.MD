@@ -1,15 +1,34 @@
 #  프로젝트 개요
+
+### " 원클릭으로 작동하는  사용자 맞춤형 AI 기반 SW"
+
 본 프로젝트는 **단일 카메라 환경** 에서 **VLM(CLIP)** 을 활용하여 **성별 및 의상 정보**를 정밀 분석하고 사람을 **카운팅** 하는 **AI 기반 SW** 입니다.
 
-또한 제한된 시간 내에 모델의 신규 학습보다는, 최신 SOTA 모델인 **OpenAI CLIP**을 YoloV8n과 SuperVision에 통합하여 **성별(Gender)** 과  **상의 색상(Top Color)** 을 제로샷(Zero-shot)으로 추론하며,  **ID Fusion** 기술을 통해 추적 안정성을 극대화하여 실제 배포 가능할 수준의 신뢰도를 확보하는 데 집중해서 개발했습니다.
+가장 큰 특징은 **사용자의 하드웨어 환경(고사양 GPU vs 저사양 노트북)** 에 맞춰 최적의 분석 엔진을 선택할 수 있는 **'이원화된 아키텍처'**  와 어떤 환경에서도 **원클릭** 으로 실행되는 SW를 목표로 했습니다.
+
+ 또한 제한된 시간 내에 모델의 신규 학습보다는, 최신 SOTA 모델인 **OpenAI CLIP**을 YoloV8n과 SuperVision에 통합하여 **성별(Gender)** 과  **상의 색상(Top Color)** 을 **제로샷(Zero-shot)** 으로 추론하며,  **ID Fusion** 기술을 통해 추적 안정성을 향상시켜 실제 배포 가능할 수준의 신뢰도를 확보하는 데 집중해서 개발했습니다.
+
+---
+# 기능소개
+
+1 원클릭 설치 및 실행 -> 사양별 OS별 맞춤 간편설치
+2 타겟 영상내 인원 카운팅 -> Yolov8n
+3 인원추적기술 -> supervision Bytracker
+4 특성추출 -> VLM(CLIP) 자연어 조합 로직 + 제로샷
+5 FPS방어 -> 
+6 ROI 카운팅 개선
+7 영상종료시 결과 레포트 제공
+8 신뢰도 상위 5명을 육안으로 직접 성능 비교가능
+
 
 ---
 # 데모 시연 영상
 -> 📹 **Demo Video** 👉 ![#링크] 
 
+
 ---
 
-# 목차 
+# 목차
 1. [Project Motivation](#-1-Project-Motivation)
 2. [시스템 아키텍쳐](#2-시스템-아키텍쳐)
 3. [데이터셋 정의](#3-데이터셋-정의(Dataset-Description))
@@ -63,11 +82,11 @@
 ---
 # 4.  속성 정의 (Attribute Definition)
 
-| **Attribute** | **Logic**              | **Keywords / Prompts**                                |
-| ------------- | ---------------------- | ----------------------------------------------------- |
-| **G(Gender)** | **Ensemble Sentences** | `a man with short hair`, `a woman with long hair` 등   |
-| **C(Color)**  | **Semantic Matching**  | `black clothing`, `blue clothing`, `white clothing` 등 |
-| **Decision**  | **Max-Confidence**     | 3회 추론 중 신뢰도 점수가 가장 높은 프레임의 결과 채택                      |
+| **Attribute** | **Logic**                           | **Keywords / Prompts**                                     |
+| ------------- | ----------------------------------- | ---------------------------------------------------------- |
+| **G(Gender)** | **Ensemble Sentences**              | `a man with short hair`, `a woman with long hair` 등        |
+| **C(Color)**  | **Semantic Matching**               | `black clothing`, `blue clothing`, `white clothing` 등      |
+| **Decision**  | **Confidence-based Best Selection** | 샘플링된 3개 프레임 중 VLM 확신도(Softmax Score)가 가장 높은 결과를 최종 속성으로 채택 |
 
 ---
 # 5. Project Structure
@@ -83,7 +102,7 @@ TASK-people-counter/
 ├── models/               # YOLO,CLIP 모델 가중치 저장소
 │   ├── yolov8n.pt
 │   ├── yolov8n-cls.pt
-│   └── ViT-B-16.pt
+│   └── ViT-B-16.pt       # VLM 모델 다운로드(파일이 미리없어도 자동다운)
 │
 ├── logs/                 # 영상종료 결과 로그 보관소
 │   └── report_.txt       
@@ -109,7 +128,7 @@ TASK-people-counter/
 
 # 6. 설치 및 실행
 
-본 프로젝트는 평가자의 편의를 위해 **원클릭 라이브러리 및 모델 구성** 기능을 탑재하고 있습니다.
+본 프로젝트는 평가자의 편의를 위해 **원클릭 라이브러리 및 모델 구성** 기능을 탑재하고 있습니다. 또한 환경 구축의 번거로움을 최소화하기 위해 여러 OS 대응 코드를 작성 했습니다.
 
 #### 💻 개발 환경 (Tested Environment)
 
@@ -144,9 +163,9 @@ cd TASK-people-counter
 - **영상 출처:** [MOT Challenge 2016](https://motchallenge.net/data/MOT16/)
 - **라이선스:** CC BY-NC-SA 4.0
 - **파일링크**
-	▶ [dev_day.mp4(MOT16-09) :  주간-카메라고정 실외영상](#)
-	▶ [eval_day.mp4(MOT16-04) : 야간-카메라고정 실외영상(붐비는,원거리)](#)
-	▶ [eval_indoors.mp4(MOT16-03) : 실내-비고정/동적 카메라 영상](#)
+	▶ [dev_day.mp4(MOT16-09) :  주간-카메라고정 실외영상](https://drive.google.com/uc?export=download&id=1zLggWjesXdZrG913pr9JdhvCqYgtWygr)
+	▶ [eval_day.mp4(MOT16-04) : 야간-카메라고정 실외영상(붐비는,원거리)](https://drive.google.com/uc?export=download&id=1PAaZPVPciWOAVZ8t-A1qJy4_dvDwAG0i)
+	▶ [eval_indoors.mp4(MOT16-03) : 실내-비고정/동적 카메라 영상](https://drive.google.com/uc?export=download&id=1ZKL2iqgjA5LUfd9dUvikreBxUsdDELLc)
 
 ### 6-3 원클릭 간편설치&자동실행
 
@@ -225,12 +244,245 @@ python main.py  # 또는 python main-low.py
 
 ---
 # 7. Accuracy & Reliability
+
+- **성능 목표** : 
+	- 실시간 분석 환경(15 FPS+)을 유지하면서 주간/야간 평균 85% 내외의 속성 인식률을 확보
+
+- **신뢰도 기반 필터링**: 
+	- 단일 프레임의 오판을 방지하기 위해 **3-step Best-Frame Sampling**을 수행하며, 그 중 **VLM 확신도(Confidence Score)가 가장 높은 최적 프레임**을 채택하여 속성 판별의 정확도를 보정
+    
+- **시스템 안정성**: 
+	- 이번 프로젝트에서는 정확도 향상도 중요하지만 실제 현장에서 발생할 수 있는 ID 스위칭 및 다수 인파 상황에서의 시스템 안정성(Robustness) 확보에 초점을 맞춤
+
+
+>※ Accuracy는 MOT16-09 Ground Truth(25명)를 기준으로 산출되었으며, 타 영상 실행 시 정답 수치에 따라 변동될 수 있습니다.
+
 Yolov8n + SuperVision + VLM(CLIP:ViT-B/16) 조합
-- eval_day(주간실외 / 고정카메라) :
+- dev_day(주간실외 / 고정카메라) :
+```bash
+
+===================================================================================================================
+[FINAL SYSTEM EVALUATION REPORT]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : dev_day.mp4
+    - Processed Date : 2026-01-16 09:33:16
+    - Storage Path   : logs/report_dev_day_20260116_093316.txt
+
+ 2. ATTRIBUTE DISTRIBUTION SUMMARY
+    - Final Count (ROI)    : 21
+    - Gender Distribution  : Male(7) / Female(12) / Unk(0)
+    - Mean Conf (Gender)   : 87.94% (Analysis Reliability)
+
+ 3. SYSTEM PERFORMANCE
+    - Effective FPS      : 15.6 (Target 15+ on 4070Ti)
+    - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
+
+ 4. ACCURACY ASSESSMENT
+    - Evaluation Acc     : 84.0% (vs. MOT16 Ground Truth Ref)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL OBJECT LOGS]
+> [ID 01] Best G: 89.8% | C: 40.8% | Res: Male/Gray
+> [ID 02] Best G: 65.8% | C: 30.7% | Res: Female/Black
+> [ID 03] Best G: 96.9% | C: 91.8% | Res: Male/Blue
+> [ID 04] Best G: 96.2% | C: 54.6% | Res: Male/Black
+> [ID 05] Best G: 80.5% | C: 40.3% | Res: Female/White
+> [ID 06] Best G: 98.1% | C: 35.0% | Res: Female/Gray
+> [ID 07] Best G: 98.1% | C: 36.8% | Res: Female/Gray
+> [ID 08] Best G: 74.8% | C: 49.4% | Res: Female/Blue
+> [ID 10] Best G: 75.8% | C: 65.7% | Res: Male/Gray
+> [ID 11] Best G: 98.9% | C: 56.7% | Res: Female/Gray
+> [ID 12] Best G: 76.0% | C: 30.0% | Res: Female/Gray
+> [ID 13] Best G: 85.6% | C: 66.5% | Res: Female/White
+> [ID 14] Best G: 96.8% | C: 69.6% | Res: Female/Gray
+> [ID 16] Best G: 97.9% | C: 72.9% | Res: Female/Gray
+> [ID 17] Best G: 86.4% | C: 98.1% | Res: Female/Black
+> [ID 18] Best G: 99.6% | C: 35.6% | Res: Male/Gray
+> [ID 19] Best G: 83.1% | C: 87.6% | Res: Male/Gray
+> [ID 20] Best G: 72.2% | C: 46.6% | Res: Female/Gray
+> [ID 22] Best G: 98.3% | C: 40.7% | Res: Male/Blue
+
+```
+> **분석:** 주간 환경에서는 높은 Mean Confidence(87.9%)를 보이며 안정적인 속성 추출이 가능함을 확인했습니다. 특히 `ID 03`, `ID 18` 등에서 96% 이상의 높은 성별 판별력을 보여 VLM의 우수한 제로샷 성능을 확보했습니다.
+
 
 - eval_night(야간실외 / 고정카메라) :
+```bash
+===================================================================================================================
+[FINAL SYSTEM EVALUATION REPORT]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : eval_night.mp4
+    - Processed Date : 2026-01-16 09:37:21
+    - Storage Path   : logs/report_eval_night_20260116_093721.txt
+
+ 2. ATTRIBUTE DISTRIBUTION SUMMARY
+    - Final Count (ROI)    : 22
+    - Gender Distribution  : Male(15) / Female(17) / Unk(0)
+    - Mean Conf (Gender)   : 76.56% (Analysis Reliability)
+
+ 3. SYSTEM PERFORMANCE
+    - Effective FPS      : 16.1 (Target 15+ on 4070Ti)
+    - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
+
+ 4. ACCURACY ASSESSMENT
+    - Evaluation Acc     : 88.0% (vs. MOT16 Ground Truth Ref)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL OBJECT LOGS]
+> [ID 01] Best G: 65.9% | C: 50.1% | Res: Male/Gray
+> [ID 02] Best G: 79.3% | C: 66.4% | Res: Male/Gray
+> [ID 03] Best G: 64.7% | C: 81.3% | Res: Female/Black
+> [ID 04] Best G: 83.2% | C: 58.4% | Res: Male/White
+> [ID 09] Best G: 68.3% | C: 53.6% | Res: Female/Gray
+> [ID 10] Best G: 61.5% | C: 68.8% | Res: Male/White
+> [ID 11] Best G: 58.9% | C: 76.2% | Res: Female/Black
+> [ID 12] Best G: 93.2% | C: 49.4% | Res: Male/Gray
+> [ID 13] Best G: 91.1% | C: 50.8% | Res: Male/Red
+> [ID 14] Best G: 81.8% | C: 48.0% | Res: Male/Black
+> [ID 15] Best G: 73.9% | C: 58.7% | Res: Female/Gray
+> [ID 16] Best G: 80.9% | C: 67.3% | Res: Male/White
+> [ID 17] Best G: 83.9% | C: 73.1% | Res: Male/White
+> [ID 18] Best G: 60.3% | C: 65.5% | Res: Male/Black
+> [ID 19] Best G: 68.4% | C: 55.6% | Res: Female/Gray
+> [ID 20] Best G: 95.4% | C: 34.9% | Res: Female/Black
+> [ID 21] Best G: 84.5% | C: 37.2% | Res: Female/Black
+> [ID 22] Best G: 93.9% | C: 26.7% | Res: Female/White
+> [ID 25] Best G: 62.7% | C: 67.8% | Res: Male/Gray
+> [ID 26] Best G: 87.7% | C: 41.6% | Res: Male/Gray
+> [ID 27] Best G: 75.8% | C: 36.7% | Res: Female/Gray
+> [ID 29] Best G: 78.6% | C: 89.3% | Res: Female/Red
+> [ID 31] Best G: 65.4% | C: 40.6% | Res: Female/Black
+> [ID 32] Best G: 60.2% | C: 63.6% | Res: Male/Black
+> [ID 33] Best G: 76.0% | C: 30.6% | Res: Male/Black
+> [ID 36] Best G: 94.2% | C: 40.5% | Res: Female/Blue
+> [ID 37] Best G: 77.8% | C: 46.2% | Res: Female/Black
+> [ID 38] Best G: 72.0% | C: 82.8% | Res: Female/White
+> [ID 39] Best G: 93.1% | C: 74.9% | Res: Male/White
+> [ID 40] Best G: 73.8% | C: 37.3% | Res: Female/Gray
+> [ID 41] Best G: 75.5% | C: 53.2% | Res: Female/White
+> [ID 42] Best G: 67.9% | C: 34.0% | Res: Female/White
+```
+
+>**분석:** 야간의 빛의 환경에서도 88.0%의 높은 정확도를 유지했습니다. 이는 시각적 노이즈를 극복하기 위해  **Aspect Ratio Filter**와 **Best-Frame Sampling** 적용한것에 대한 성능방어라고 판단했습니다.
 
 - eval_indoors(실내/ 동적카메라) :
+```bash
+
+===================================================================================================================
+[FINAL SYSTEM EVALUATION REPORT]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : eval_indoors.mp4
+    - Processed Date : 2026-01-16 09:35:31
+    - Storage Path   : logs/report_eval_indoors_20260116_093531.txt
+
+ 2. ATTRIBUTE DISTRIBUTION SUMMARY
+    - Final Count (ROI)    : 30
+    - Gender Distribution  : Male(19) / Female(14) / Unk(0)
+    - Mean Conf (Gender)   : 85.06% (Analysis Reliability)
+
+ 3. SYSTEM PERFORMANCE
+    - Effective FPS      : 15.5 (Target 15+ on 4070Ti)
+    - Defense Strategy   : Aspect Ratio Filter(>1.5) + Best-Frame Sampling(3-step)
+
+ 4. ACCURACY ASSESSMENT
+    - Evaluation Acc     : 83.3% (vs. MOT16 Ground Truth Ref)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL OBJECT LOGS]
+> [ID 01] Best G: 86.8% | C: 68.9% | Res: Male/Black
+> [ID 02] Best G: 69.1% | C: 47.2% | Res: Male/Black
+> [ID 03] Best G: 97.6% | C: 87.0% | Res: Male/Red
+> [ID 05] Best G: 93.4% | C: 79.4% | Res: Male/White
+> [ID 07] Best G: 55.7% | C: 72.4% | Res: Female/Black
+> [ID 08] Best G: 96.2% | C: 39.5% | Res: Female/Black
+> [ID 09] Best G: 68.2% | C: 95.4% | Res: Female/Black
+> [ID 10] Best G: 79.6% | C: 47.2% | Res: Male/Gray
+> [ID 11] Best G: 91.0% | C: 31.1% | Res: Male/Gray
+> [ID 12] Best G: 84.2% | C: 71.2% | Res: Male/Yellow
+> [ID 13] Best G: 89.9% | C: 33.8% | Res: Male/Blue
+> [ID 14] Best G: 95.0% | C: 56.0% | Res: Male/Gray
+> [ID 15] Best G: 74.4% | C: 98.6% | Res: Female/Black
+> [ID 16] Best G: 84.8% | C: 82.2% | Res: Female/Black
+> [ID 17] Best G: 98.4% | C: 41.3% | Res: Male/Gray
+> [ID 18] Best G: 96.4% | C: 54.2% | Res: Female/Gray
+> [ID 21] Best G: 67.6% | C: 67.0% | Res: Female/White
+> [ID 22] Best G: 94.3% | C: 31.7% | Res: Male/Gray
+> [ID 24] Best G: 74.8% | C: 64.6% | Res: Female/Red
+> [ID 25] Best G: 61.9% | C: 77.6% | Res: Female/Black
+> [ID 26] Best G: 81.9% | C: 62.6% | Res: Female/Gray
+> [ID 27] Best G: 95.4% | C: 56.0% | Res: Male/White
+> [ID 28] Best G: 95.8% | C: 74.2% | Res: Male/Blue
+> [ID 29] Best G: 79.8% | C: 41.5% | Res: Male/Gray
+> [ID 30] Best G: 56.4% | C: 70.2% | Res: Female/Black
+> [ID 31] Best G: 91.7% | C: 38.6% | Res: Male/Gray
+> [ID 32] Best G: 93.4% | C: 57.8% | Res: Male/Blue
+> [ID 33] Best G: 96.9% | C: 57.3% | Res: Male/Blue
+> [ID 34] Best G: 97.1% | C: 72.6% | Res: Male/Red
+> [ID 35] Best G: 97.0% | C: 39.3% | Res: Male/Black
+> [ID 36] Best G: 98.3% | C: 76.7% | Res: Female/White
+> [ID 37] Best G: 66.4% | C: 84.5% | Res: Female/Black
+> [ID 38] Best G: 98.6% | C: 82.8% | Res: Female/Blue
+```
+
+>  **분석:** 카메라가 움직이는 동적 환경임에도 불구하고 ByteTrack과의 결합을 통해 30명의 인원을 성공적으로 트래킹했습니다. 배경 변화가 심한 실내에서도 평균 85%의 신뢰도를 유지하며 시스템의 범용성을 확보했습니다.
+
+
+Yolov8n + SuperVision + Yolov8n-cls + HSV + K-Means Clustering
+dev_day(주간실외 / 고정카메라) :
+```bash
+**
+===================================================================================================================
+[FINAL HYBRID SYSTEM REPORT (VOTING ENABLED)]
+===================================================================================================================
+ 1. SESSION INFO
+    - Target Video   : dev_day.mp4
+    - Processed Date : 2026-01-16 09:34:16
+    - Storage Path   : logs/report_LOW_dev_day_20260116_093416.txt
+
+ 2. PERFORMANCE SUMMARY
+    - Total Tracked  : 35
+    - Final Count    : 27
+    - Gender Stats   : Male(20) / Female(5) / Unk(1)
+    - Effective FPS  : 16.2
+    
+ 3. CONFIGURATION
+    - Mode           : Low-Spec / Hybrid Voting
+    - Logic          : 3-Frame Temporal Voting (Majority Rule)
+===================================================================================================================
+
+[APPENDIX: INDIVIDUAL LOGS]
+> [ID 01] Final: Male(27) | Green
+> [ID 02] Final: Male(20) | Green
+> [ID 03] Final: Male(17) | Green
+> [ID 04] Final: Male(55) | Gray
+> [ID 05] Final: Male(26) | Green
+> [ID 06] Final: Male(18) | Blue
+> [ID 07] Final: Male(16) | White
+> [ID 08] Final: Unk(10) | Green
+> [ID 09] Final: Female(17) | White
+> [ID 10] Final: Male(39) | Black
+> [ID 11] Final: Male(38) | White
+> [ID 12] Final: Male(35) | Gray
+> [ID 15] Final: Male(36) | White
+> [ID 16] Final: Female(58) | White
+> [ID 17] Final: Male(24) | White
+> [ID 18] Final: Male(25) | White
+> [ID 21] Final: Male(18) | White
+> [ID 22] Final: Male(29) | White
+> [ID 23] Final: Male(38) | Gray
+> [ID 24] Final: Male(38) | Green
+> [ID 25] Final: Male(22) | White
+> [ID 26] Final: Female(29) | Black
+> [ID 30] Final: Female(46) | White
+> [ID 31] Final: Male(17) | White
+> [ID 32] Final: Male(32) | Red
+> [ID 33] Final: Female(17) | Green
+**
+```
+
 
 ---
 
@@ -251,6 +503,9 @@ Yolov8n + SuperVision + VLM(CLIP:ViT-B/16) 조합
 
 ### 9-2. 기술변경
 
+>저사양 환경에서는 수학적 통계 방식의 한계로 인해 정확도가 하락하나, 이를 보완하기 위해 VLM 기반의 고사양 모드로 바꾸었습니다.
+>또한 성능 비교를 하며 진행했기때문에 두 환경 모두 배포하는것으로 결정했습니다.
+
 ❌ 초기 설정(특성활용에 휴리스틱방식)  : 
 - Yolov8n + HSV + K-means
 임베디드 혹은 저사양 하드웨어 환경을 고려하여 수학적 통계방식을 채택하였으나
@@ -262,17 +517,25 @@ Yolov8n + SuperVision + VLM(CLIP:ViT-B/16) 조합
 
 
 ⚠ 단점 보완
-최신 VLM SOTA 모델을 채택하여 임베디드 혹은 저사양 하드웨어 환경에서 작동이 어려울수 있으나 RTX 4070ti 12GB 기준 FPS15로 퍼포먼스 최적화도 신경써서 개발
+최신 VLM SOTA 모델을 채택하여 임베디드 혹은 저사양 하드웨어 환경에서 작동이 어려울수 있으나 RTX 4070ti 12GB 기준 FPS15+ 로 퍼포먼스 최적화도 신경써서 개발했습니다.
 
 ### 9-3. 추후 도전과제 (Future Works)
 
-현재는 저사양 하드웨어 환경에서 작동이 어려울수 있으나
-임베디드나 저사양에서 작동할것을 고려하여 추후에 VLM(CLIP:ViT-B/16) 에
-ONNX 혹은 NCNN과 양자화(INT8) 적용하여 최적화를 기대할수 있을것으로 예상
+1. **성능 최적화 및 에지 디바이스(Edge Device) 대응**
+	+  향후 임베디드 및 저사양 환경에서의 구동을 위해 **VLM(CLIP: ViT-B/16)** 및 **Qwen** 등 대형 VLM 모델을 **ONNX** 또는 **NCNN** 포맷으로의 변환
+	+  INT8/FP16 양자화 를 적용하여 정밀도를 유지하면서 추론속도를 올리는 최적화를 추가할것을 기대
 
-sqlite 등의 DB를 생성하고 연결하여 영상종료후 추출되는 인원의 정보를 활용할수 있을것으로 예상
+2. **일관된 배포 환경 구성**
+    - 대규모 배포나 서버 환경 확장을 위해서는 **Docker**를 활용한 컨테이너 기반의 일관성 있는 배포가 필요
+    
+3. **데이터 관리 및 EDA 활용**
+    - SQLite 연동을 통한 누적 카운팅 또는 특성 데이터저장
+    - 분석된 성별,복장 데이터를 대시보드화하여 실시간 통계 시각화 로직 구현
 
-개발 프로토타입 이므로 상용화및 실무 배포 하기 위해서 깔끔한 폰트와 UI/UX를 추가할 필요가 있음
+4. **UI/UX 개선**
+	+ 개발 프로토타입 이므로 상용화및 실무 배포 하기 위해서 깔끔한 폰트와 UI/UX를 추가
 
+5. **하드웨어 성능별 브랜치관리**
+	+ 고성능,일반성능,경량화 버전별로 개발 브랜치 나눠서 고도화
 ---
 
