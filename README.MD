@@ -31,7 +31,7 @@
 3. [**핵심 기술 구현 및 차별성**](#3-핵심-기술-구현-및-차별성)
 4. [**Accuracy & Reliability Evaluation**](#4-accuracy--reliability-evaluation)
 5. [**시스템 아키텍쳐 및 속성 정의**](#5-시스템-아키텍쳐-및-속성-정의)
-6. [**프로젝트 구조 및 실행 가이드**](#6-프로젝트-구조-및-실행설치-가이드)
+6. [**프로젝트 구조 및 실행 가이드**](#6-프로젝트-구조-및-실행/설치-가이드)
 7. [**Technical & Future Work**](#7-Technical--Future-Work)
 ---
 
