@@ -5,10 +5,10 @@ import os
 # 1. Path Configurations (파일 경로)
 # ==========================================
 # [사용자 설정] 테스트하고 싶은 영상 경로를 주석 해제하세요.
-# DEFAULT_VIDEO_PATH = "data/dev_day.mp4"
+DEFAULT_VIDEO_PATH = "data/dev_day.mp4"
 # DEFAULT_VIDEO_PATH = "data/eval_day.mp4"
 # DEFAULT_VIDEO_PATH = "data/eval_night.mp4"
-DEFAULT_VIDEO_PATH = "data/eval_indoors4445.mp4"
+# DEFAULT_VIDEO_PATH = "data/eval_indoors.mp4"
 
 # [시스템 안전장치] 위 파일이 없을 경우 강제로 실행할 보장된 샘플 경로
 FALLBACK_VIDEO_PATH = "data/sample.avi"
