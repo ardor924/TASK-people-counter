@@ -28,15 +28,27 @@ def main():
     detector = YOLO(MODEL_PATH) # 객체 탐지 모델 로드
     vlm_engine = VLMAttributeEngine() # VLM(CLIP) 속성 분석 엔진 초기화
     
+    # ------------------------------------------
+    # [안전장치 예외처리] 영상 경로 확인 로직
+    # ------------------------------------------
     target_video = DEFAULT_VIDEO_PATH 
+    fallback_video = "data/sample.avi" # 레포지토리 내 생존 보장 파일
+
     if not os.path.exists(target_video):
-        print(f"[ERROR] Video file not found: {target_video}")
-        return
+        print(f"\n⚠️  [파일 누락 경고] 설정된 경로 '{target_video}'에 영상이 없습니다.")
+        
+        if os.path.exists(fallback_video):
+            print(f"🔄 [안전장치 가동] 기본 샘플 파일('{fallback_video}')로 자동 전환하여 실행을 계속합니다.\n")
+            target_video = fallback_video
+        else:
+            print(f"❌ [치명적 오류] 기본 샘플 영상조차 존재하지 않습니다. 'data/' 폴더 내 파일 구성을 확인해주세요.")
+            return
 
     cap = cv2.VideoCapture(target_video)
     if not cap.isOpened():
         print(f"[ERROR] Could not open video stream.")
         return
+    # ------------------------------------------
 
     # [FPS Control] 원본 영상 속도와 처리 속도를 동기화하기 위한 설정
     raw_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -231,7 +243,7 @@ def main():
     cv2.destroyAllWindows()
     
     # ==========================================
-    # 6. 유종의 미 (End-of-Stream Flush 로직)
+    # 6.End-of-Stream Flush 로직
     # ==========================================
     # 영상 종료 시 분석 중이던 잔여 버퍼 데이터를 강제로 확정 및 카운트 반영
     print(f"\n[INFO] End of Stream detected. Flushing remaining buffers...")
