@@ -557,3 +557,34 @@ dev_day(주간실외 / 고정카메라) :
 	-  Intel iGPU (내장 그래픽12GB) 노트북환경에서 경량화 모델 구동시 FPS가 8~10 수준으로 나왔기때문에 저사양하드웨어에서 추론속도를 위해 TensorRT/ONNX 가속을 적용하여 실시간성(15 FPS+)확보하는것으로 개선
 ---
 
+
+
+
+flowchart TD
+    A[Video Input<br/>MP4 / Stream] --> B[Frame Pre-processing<br/>Resize · FPS Sync]
+    
+    B --> C[YOLOv8 Object Detection]
+    C --> D[Detection Filtering<br/>Aspect Ratio · Confidence]
+
+    D --> E[Multi-Object Tracking<br/>ByteTrack]
+    
+    E --> F[ID Fusion & Re-ID Logic<br/>Distance + Time-based]
+    
+    F --> G[Stable Track Check<br/>Track Hits ≥ 3]
+
+    G -->|3 · 10 · 20 frames| H[VLM Candidate Sampling]
+    H --> I[VLM Attribute Engine<br/>CLIP ViT-B/16]
+
+    I --> J[HSV Hybrid Verification<br/>Physical Truth Filter]
+
+    J --> K[Best-Frame Selection<br/>Confidence Max]
+    K --> L[Final Attribute Fixation<br/>Gender · Upper Color]
+
+    L --> M[ROI Dwell-Time Counter]
+    M --> N[Statistics Aggregation]
+
+    N --> O[Outputs]
+    O --> O1[Real-time HUD Overlay]
+    O --> O2[Top-5 Best Samples]
+    O --> O3[Text Report]
+    O --> O4[Summary Window]
