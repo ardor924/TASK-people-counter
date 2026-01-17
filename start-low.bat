@@ -112,7 +112,7 @@ if "%ENV_TYPE%"=="Conda (ai_counter_env)" (
 :: --------------------------------------------------------
 echo.
 echo ==================================================
-echo [System] AI People Counter 실행 (VLM Mode)
+echo [System] AI People Counter 실행 (Low-Spec / Hybrid Mode)
 echo ==================================================
 echo.
 

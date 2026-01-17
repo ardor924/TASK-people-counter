@@ -5,16 +5,12 @@ import numpy as np
 import cv2
 from PIL import Image
 
-# ==============================================================================
-# 1. 라이브러리 의존성 및 전역 임포트 (Global Import & Dependency Management)
-# ==============================================================================
-# 모듈 로딩 에러 방지를 위해 전역에서 import를 시도하며, CLIP이 없을 경우 자동 설치합니다.
+# [중요] 모듈 로딩 에러 방지를 위해 전역에서 import
 try:
     import torch
     import clip
 except ImportError:
-    print("[INFO] CLIP library missing. Attempting auto-installation...")
-    # git을 통해 OpenAI의 공식 CLIP 저장소에서 최신 버전을 설치합니다.
+    print("[INFO] Libraries missing. Installing CLIP & Torch...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "git+https://github.com/openai/CLIP.git"])
     import torch
     import clip
@@ -26,32 +22,28 @@ class VLMAttributeEngine:
         if not os.path.exists(self.model_dir): os.makedirs(self.model_dir)
 
         try:
-            # 하드웨어 가속(CUDA) 가능 여부 확인
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             
-            # OpenAI CLIP 모델(ViT-B/16) 로드
             print(f"[INFO] Loading CLIP model to {self.device.upper()}...")
             self.model, self.preprocess = clip.load("ViT-B/16", device=self.device, download_root=self.model_dir)
             
-            # ---------------------------------------------------------
-            # [Attribute Definition 1] 성별 분석용 자연어 프롬프트
-            # ---------------------------------------------------------
-            # 다양한 문장 조합(Ensemble)을 통해 제로샷 추론의 정확도를 높입니다.
+            # [1] 성별 프롬프트
             self.m_prompts = ["a photo of a man", "a male person", "this is a man", "a gentleman", "a guy"]
             self.w_prompts = ["a photo of a woman", "a female person", "this is a woman", "a lady", "a girl"]
             self.all_g_prompts = self.m_prompts + self.w_prompts
             self.m_len = len(self.m_prompts)
             
-            # ---------------------------------------------------------
-            # [Attribute Definition 2] 의상 색상용 자연어 프롬프트
-            # ---------------------------------------------------------
-            # 상의(Upper body)를 강조하여 하의나 배경색과의 간섭을 최소화하도록 설계했습니다.
-            self.color_names = ["Black", "White", "Grey", "Red", "Blue", "Yellow", "Green", "Orange"]
+            # [2] 색상 프롬프트 (상의 집중 강화)
+            self.color_names = [
+                "Black", "White", "Grey", "Red", "Blue", "Yellow", "Green", "Orange"
+            ]
+            
+            # [수정] 'fabric shirt' -> 'upper body clothing'으로 변경하여 하의 배제 의도 전달
             self.color_prompts = [
                 f"a close-up photo of a {c.lower()} color upper body clothing, shirt or jacket" for c in self.color_names
             ]
             
-            # 텍스트 토큰화 및 장치 할당 (속도 향상을 위해 초기화 시 1회 수행)
+            # 토큰화
             self.gender_tokens = clip.tokenize(self.all_g_prompts).to(self.device)
             self.color_tokens = clip.tokenize(self.color_prompts).to(self.device)
             
@@ -61,34 +53,28 @@ class VLMAttributeEngine:
             print(f"[WARN] VLM Init Failed: {e}")
 
     def analyze(self, crop_cv2):
-        """입력된 객체 이미지(Crop)를 분석하여 성별과 상의 색상을 반환합니다."""
         if not self.available: return None
         
         try:
             h, w = crop_cv2.shape[:2]
             
-            # [안전장치] 이미지가 너무 작아 특징 추출이 불가능한 경우 분석 제외
+            # [안전장치] 이미지가 너무 작으면 분석 불가
             if h < 10 or w < 10: return None
 
-            # ==================================================================
-            # 2. 전략적 구역 크롭 (Strategic Cropping Strategy)
-            # ==================================================================
-            
-            # [전략 1] 성별 분석용 크롭 (Gender Crop)
-            # 다리를 제외하고 상체와 얼굴 위주(높이 70% 지점까지)로 분석하여 성별 특징을 강조합니다.
+            # [전략 1] 성별용 크롭 (다리 제외, 상체 위주)
             crop_g_cv = crop_cv2[0:int(h*0.7), int(w*0.05):int(w*0.95)]
             if crop_g_cv.size == 0: crop_g_cv = crop_cv2
             
             img_g = Image.fromarray(cv2.cvtColor(crop_g_cv, cv2.COLOR_BGR2RGB))
             input_g = self.preprocess(img_g).unsqueeze(0).to(self.device)
 
-            # [전략 2] 색상 분석용 크롭 (Upper-Chest Strategic Focus)
-            # 바지(하의), 가방 끈, 배경 노이즈가 섞이지 않도록 '목 아래 ~ 명치 위' 구간만 정밀 타격합니다.
-            # 높이 기준: 12% ~ 38% 영역
+            # [전략 2] 색상용 크롭 (Upper Chest Focus)
+            # 바지 간섭을 피하기 위해 높이를 h*0.38 (가슴 중앙)까지만 제한
+            # ROI: 목 아래(12%) ~ 명치 위(38%) -> 오직 상의만 존재하는 구간
             roi_y1, roi_y2 = int(h*0.12), int(h*0.38)
             roi_x1, roi_x2 = int(w*0.30), int(w*0.70)
             
-            # ROI가 너무 작을 경우의 예외 처리를 포함합니다.
+            # 너무 작아서 크롭이 안되면 상반신 전체 사용
             if roi_y2 - roi_y1 < 5 or roi_x2 - roi_x1 < 5:
                 crop_c_cv = crop_cv2[0:int(h*0.5), :]
             else:
@@ -99,18 +85,15 @@ class VLMAttributeEngine:
             img_c = Image.fromarray(cv2.cvtColor(crop_c_cv, cv2.COLOR_BGR2RGB))
             input_c = self.preprocess(img_c).unsqueeze(0).to(self.device)
 
-            # ==================================================================
-            # 3. VLM 의미론적 추론 (Semantic Inference via CLIP)
-            # ==================================================================
             with torch.no_grad():
-                # --- A. 성별 추론 (Gender Ensemble Score) ---
+                # --- A. 성별 추론 ---
                 logits_g, _ = self.model(input_g, self.gender_tokens)
                 probs_g = (logits_g / 0.7).softmax(dim=-1).cpu().numpy()[0]
-                m_score = np.sum(probs_g[:self.m_len]) # 남성 관련 프롬프트 합산
-                w_score = np.sum(probs_g[self.m_len:]) # 여성 관련 프롬프트 합산
+                m_score = np.sum(probs_g[:self.m_len])
+                w_score = np.sum(probs_g[self.m_len:])
                 best_g_text = self.all_g_prompts[np.argmax(probs_g)]
 
-                # --- B. 색상 추론 (Zero-shot Color Matching) ---
+                # --- B. 색상 추론 ---
                 logits_c, _ = self.model(input_c, self.color_tokens)
                 probs_c = (logits_c / 0.6).softmax(dim=-1).cpu().numpy()[0]
                 c_idx = np.argmax(probs_c)
@@ -119,42 +102,34 @@ class VLMAttributeEngine:
                 vlm_conf = probs_c[c_idx] * 100
                 best_c_text = self.color_prompts[c_idx]
 
-            # ==================================================================
-            # 4. HSV 하이브리드 검증 (Physical Verification: The "Truth Filter")
-            # ==================================================================
-            # 딥러닝 모델이 조명(그림자 등)에 의해 색상을 오인하는 것을 막기 위해 
-            # 실제 픽셀의 채도(Saturation)와 명도(Value)를 기반으로 보정합니다.
+            # --- C. HSV 검증 (단순화된 버전) ---
             final_color = vlm_color
             final_c_conf = vlm_conf
             correction_note = ""
 
-            # 노이즈 제거를 위한 가우시안 블러 및 HSV 변환
+            # 작은 블러 처리
             if crop_c_cv.shape[0] > 5 and crop_c_cv.shape[1] > 5:
                 blurred_roi = cv2.GaussianBlur(crop_c_cv, (5, 5), 0)
             else:
                 blurred_roi = crop_c_cv
                 
             hsv_roi = cv2.cvtColor(blurred_roi, cv2.COLOR_BGR2HSV)
-            mean_s = np.mean(hsv_roi[:, :, 1]) # 채도 수치 (물리적 선명도)
-            mean_v = np.mean(hsv_roi[:, :, 2]) # 명도 수치 (물리적 밝기)
+            mean_s = np.mean(hsv_roi[:, :, 1]) # Saturation
+            mean_v = np.mean(hsv_roi[:, :, 2]) # Value
 
-            # [보정 규칙 1] 무채색 강제 (Achromatic Force)
-            # 채도가 30 미만으로 낮으면 VLM이 어떤 유채색(Red, Blue 등)을 제시하더라도 
-            # 물리적으로 무채색(Black, White, Grey) 계열로 판단을 강제합니다.
+            # [규칙 1] 채도가 매우 낮으면(30 미만) 무조건 무채색
             if mean_s < 30:
                 if mean_v < 50: final_color = "Black"
                 elif mean_v > 200: final_color = "White"
                 else: final_color = "Grey"
                 if final_color != vlm_color: correction_note = " (HSV Forced)"
             
-            # [보정 규칙 2] 밝기 기반 명도 재검증
-            # 'Black'이라고 했지만 너무 밝거나, 'White'라고 했지만 너무 어두운 경우 'Grey'로 보정합니다.
+            # [규칙 2] Black/White 명도 검증
             if final_color == "Black" and mean_v > 110:
                 final_color = "Grey"
             if final_color == "White" and mean_v < 150:
                 final_color = "Grey"
 
-            # 최종 성별 결정 및 신뢰도 산출
             gender = "Male" if m_score > w_score else "Female"
             total_g = m_score + w_score
             g_conf = (max(m_score, w_score) / total_g) * 100 if total_g > 0 else 0
@@ -164,6 +139,5 @@ class VLMAttributeEngine:
             return {"g": gender, "c": final_color, "g_cf": g_conf, "c_cf": final_c_conf, "desc": description}
             
         except Exception as e:
-            # 디버깅을 위한 에러 로그 출력
             print(f"[VLM ERROR] {e}") 
             return None
