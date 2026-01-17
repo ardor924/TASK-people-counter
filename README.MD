@@ -210,7 +210,7 @@ TASK-people-counter/
 │   └── utils.py          # 레포트결과 저장 및 UI 표시 로직
 │
 ├── main.py               # 메인 실행 파일
-├── setup.py              # [New] 자동 설치 스크립트
+├── setup.py              # 자동 설치 스크립트
 ├── requirements.txt      # 의존성 목록 (Torch 제외)
 ├── README.md             # 프로젝트 문서
 └── start.bat             # 간편 영상실행
