@@ -4,12 +4,22 @@ import os
 
 def install(package):
     print(f"📦 Installing {package}...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    
+    # [수정됨] 핵심 수정 파트!
+    # 원본 문제: package가 "pkg1 pkg2" 처럼 띄어쓰기로 들어오면, 
+    #            리스트의 마지막 요소가 ["...install", "pkg1 pkg2"] 가 되어 에러 발생.
+    # 해결: .split()을 사용하여 공백 기준으로 문자열을 쪼개서 리스트로 합쳐줘야 함.
+    #       결과 -> ["...install", "pkg1", "pkg2"]
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install"] + package.split())
+    except subprocess.CalledProcessError:
+        print(f"⚠️ {package} 설치 중 문제가 발생했지만, 이미 설치되었거나 호환성 문제일 수 있어 넘어갑니다.")
 
 def install_torch_gpu():
     print("\n🚀 [Step 1] GPU 환경 감지 및 PyTorch 설치 시도...")
     try:
         # CUDA 12.1 버전용 PyTorch 설치 (최신 NVIDIA 환경 최적화)
+        # 여기는 원래부터 리스트로 잘 분리되어 있어서 문제가 없었습니다.
         subprocess.check_call([
             sys.executable, "-m", "pip", "install", 
             "torch", "torchvision", "torchaudio", 
@@ -19,6 +29,9 @@ def install_torch_gpu():
     except Exception as e:
         print(f"⚠️ GPU 버전 설치 실패: {e}")
         print("🔄 CPU 버전으로 설치를 시도합니다...")
+        
+        # [참고] 여기서 CPU 버전을 설치할 때 위에서 수정한 install 함수를 호출합니다.
+        # 기존에는 여기서 "torch torchvision torchaudio" 문자열 때문에 에러가 났습니다.
         install("torch torchvision torchaudio")
 
 def create_folders():
@@ -45,6 +58,7 @@ def install_dependencies():
             print(f"⚠️ requirements.txt 설치 중 오류 발생 (일부 패키지 실패 가능): {e}")
     else:
         print("   - requirements.txt 없음. 핵심 라이브러리 개별 설치...")
+        # 여기 있는 패키지들도 install 함수를 통해 안전하게 설치됩니다.
         pkgs = ["ultralytics", "opencv-python", "numpy", "supervision", "tqdm", "lapx"]
         for pkg in pkgs:
             install(pkg)
@@ -90,15 +104,13 @@ def main():
     print("   AI Tracking System - Environment Setup")
     print("================================================")
     
-    # [수정됨] 0. 중복 설치 방지 체크 로직
-    # 핵심 라이브러리가 import 가능하다면 설치 과정을 건너뜁니다.
+    # 0. 중복 설치 방지 체크 로직
     skip_install = False
     try:
         print("\n🔍 [Check] 필수 라이브러리 설치 상태 확인 중...")
         import torch
         import cv2
         import ultralytics
-        # import clip  # CLIP은 상황에 따라 없을 수도 있으므로(Git 문제 등) 필수로 체크하진 않음
         
         print("✅ 핵심 라이브러리(Torch, OpenCV, YOLO)가 이미 설치되어 있습니다.")
         print("🚀 무거운 설치 과정을 건너뛰고 실행 준비를 마무리합니다.")
@@ -107,16 +119,16 @@ def main():
         print("⚠️ 필수 라이브러리가 감지되지 않았습니다. 전체 설치를 진행합니다.")
         skip_install = False
 
-    # 1. 폴더 생성 (폴더는 없으면 언제든 다시 만들어야 하므로 항상 실행)
+    # 1. 폴더 생성 (항상 실행)
     create_folders()
     
     if not skip_install:
-        # 2. PyTorch 설치 (미설치 시에만 실행)
+        # 2. PyTorch 설치
         install_torch_gpu()
-        # 3. 기타 라이브러리 및 CLIP 설치 (미설치 시에만 실행)
+        # 3. 기타 라이브러리 및 CLIP 설치
         install_dependencies()
     
-    # 4. 모델 미리 받기 (모델 파일이 지워졌을 수도 있으므로 항상 체크 - 내부적으로 파일 있으면 스킵함)
+    # 4. 모델 미리 받기
     download_initial_models()
 
     print("\n" + "="*50)
@@ -126,7 +138,6 @@ def main():
     print("🎉 아무 키나 클릭하면 바로 영상이 실행됩니다.")
     print("="*50)
     
-    # 창이 바로 꺼지는 것을 방지 (평가자 확인용)
     os.system("pause")
 
 if __name__ == "__main__":
