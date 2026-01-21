@@ -17,6 +17,7 @@ VIDEO_PATH = "data/dev_day.mp4"
 # VIDEO_PATH = "data/eval_day.mp4"
 # VIDEO_PATH = "data/eval_night.mp4"
 # VIDEO_PATH = "data/eval_indoors.mp4"
+
 DETECTOR_PATH = "models/yolov8n.pt"
 CLASSIFIER_PATH = "models/yolov8n-cls.pt"
 
@@ -130,13 +131,28 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Running in Hybrid Voting Mode (Device: {device})")
 
+    # ================================================================
+    # [수정됨] 비디오 파일 폴백(Fallback) 로직 적용
+    # 1. 설정된 VIDEO_PATH가 없으면 -> 2. sample.avi 확인 -> 3. 없으면 종료
+    # ================================================================
+    target_video = VIDEO_PATH
+    if not os.path.exists(target_video):
+        print(f"\n⚠️  [WARN] Video file not found at: {target_video}")
+        fallback_path = "data/sample.avi"
+        
+        if os.path.exists(fallback_path):
+            print(f"🔄 [Fallback] Switching to default sample video: '{fallback_path}'")
+            target_video = fallback_path
+        else:
+            print(f"❌ [ERROR] Fallback video '{fallback_path}' is also missing.")
+            print("Please place 'dev_day.mp4' or 'sample.avi' in the 'data/' folder.")
+            return
+
     detector = YOLO(DETECTOR_PATH).to(device)
     hybrid_engine = HybridAttributeEngine(device=device)
     
-    if not os.path.exists(VIDEO_PATH):
-        print(f"[ERROR] Video file not found: {VIDEO_PATH}"); return
-
-    cap = cv2.VideoCapture(VIDEO_PATH)
+    # 수정된 target_video 변수 사용
+    cap = cv2.VideoCapture(target_video)
     raw_fps = cap.get(cv2.CAP_PROP_FPS)
     target_fps = min(raw_fps, 30.0) if raw_fps > 0 else 30.0
     frame_interval_ms = int(1000 / target_fps)
@@ -275,7 +291,8 @@ def main():
         overlay = display.copy()
         cv2.rectangle(overlay, (0, 0), (450, 160), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, display, 0.4, 0, display)
-        cv2.putText(display, f"HYBRID VOTING SYSTEM: {os.path.basename(VIDEO_PATH)}", (20, 45), 1, 1.4, (0, 255, 255), 2)
+        # [수정] target_video 변수 사용 (실제 재생 중인 파일명 표시)
+        cv2.putText(display, f"HYBRID VOTING SYSTEM: {os.path.basename(target_video)}", (20, 45), 1, 1.4, (0, 255, 255), 2)
         cv2.putText(display, f"MALE : {gender_stats['Male']} | FEMALE : {gender_stats['Female']}", (20, 95), 1, 1.2, (0, 255, 255), 1)
         
         real_fps = frame_idx / (time.time() - start_time)
@@ -295,7 +312,9 @@ def main():
     elapsed = time.time() - start_time
     avg_g_conf = np.mean(conf_scores_g) if conf_scores_g else 0.0
     avg_c_conf = np.mean(conf_scores_c) if conf_scores_c else 0.0
-    video_base_name = os.path.splitext(os.path.basename(VIDEO_PATH))[0]
+    
+    # [수정] target_video 기반으로 파일명 생성
+    video_base_name = os.path.splitext(os.path.basename(target_video))[0]
     
     save_best_samples(video_base_name, best_crops_store)
     generate_report(video_base_name, total_count, gender_stats, avg_g_conf, avg_c_conf, frame_idx/elapsed, inference_log, file_prefix="LOW_")
